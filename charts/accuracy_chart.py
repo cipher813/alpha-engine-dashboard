@@ -1,0 +1,372 @@
+"""
+Signal accuracy charts for the Alpha Engine Dashboard.
+"""
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+
+def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
+    """
+    Rolling 4-week (~20 trading day) accuracy trend lines.
+    Shows accuracy_10d and accuracy_30d over time.
+    Dashed 50% reference line. Shaded band at 55%+ (outperformance zone).
+
+    perf_df needs: score_date, beat_spy_10d (bool), beat_spy_30d (bool)
+    """
+    if perf_df is None or perf_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Accuracy Trend — No data available")
+        return fig
+
+    df = perf_df.copy()
+    df["score_date"] = pd.to_datetime(df["score_date"])
+    df = df.sort_values("score_date")
+
+    # Convert bool columns to numeric (1/0) for rolling mean
+    for col in ["beat_spy_10d", "beat_spy_30d"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Rolling 20-row window (approx 4 calendar weeks of trading days)
+    window = 20
+    df["acc_10d"] = df["beat_spy_10d"].rolling(window, min_periods=5).mean() * 100
+    df["acc_30d"] = df["beat_spy_30d"].rolling(window, min_periods=5).mean() * 100
+
+    fig = go.Figure()
+
+    # Shaded outperformance band (55%+)
+    x_range = [df["score_date"].min(), df["score_date"].max()]
+    fig.add_hrect(
+        y0=55,
+        y1=100,
+        fillcolor="rgba(0,200,100,0.08)",
+        line_width=0,
+        annotation_text="55%+ zone",
+        annotation_position="top right",
+        annotation_font_size=11,
+        annotation_font_color="#2ca02c",
+    )
+
+    # 50% reference line
+    fig.add_hline(
+        y=50,
+        line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
+        annotation_text="50% (coin flip)",
+        annotation_position="bottom right",
+        annotation_font_size=10,
+    )
+
+    # 10d accuracy line
+    fig.add_trace(
+        go.Scatter(
+            x=df["score_date"],
+            y=df["acc_10d"],
+            mode="lines",
+            name="10d Accuracy (4-wk rolling)",
+            line=dict(color="#1f77b4", width=2.5),
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>10d Accuracy: %{y:.1f}%<extra></extra>",
+        )
+    )
+
+    # 30d accuracy line
+    fig.add_trace(
+        go.Scatter(
+            x=df["score_date"],
+            y=df["acc_30d"],
+            mode="lines",
+            name="30d Accuracy (4-wk rolling)",
+            line=dict(color="#ff7f0e", width=2.5, dash="dot"),
+            hovertemplate="<b>%{x|%Y-%m-%d}</b><br>30d Accuracy: %{y:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.update_layout(
+        title="Signal Accuracy Trend (Rolling 4-Week Window)",
+        xaxis=dict(title="Date", showgrid=True, gridcolor="rgba(0,0,0,0.07)"),
+        yaxis=dict(
+            title="Accuracy (%)",
+            ticksuffix="%",
+            range=[0, 100],
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.07)",
+        ),
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(t=60, b=40, l=60, r=20),
+    )
+    return fig
+
+
+def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
+    """
+    Grouped bar chart: accuracy by score bucket (60-70, 70-80, 80-90, 90+).
+    Two bars per bucket: accuracy_10d and accuracy_30d.
+
+    perf_df needs: composite_score (or score), beat_spy_10d, beat_spy_30d
+    """
+    if perf_df is None or perf_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Accuracy by Score Bucket — No data available")
+        return fig
+
+    df = perf_df.copy()
+
+    # Determine score column
+    score_col = "composite_score" if "composite_score" in df.columns else "score"
+    if score_col not in df.columns:
+        fig = go.Figure()
+        fig.update_layout(title="Accuracy by Score Bucket — Missing score column")
+        return fig
+
+    df[score_col] = pd.to_numeric(df[score_col], errors="coerce")
+    for col in ["beat_spy_10d", "beat_spy_30d"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Assign buckets
+    bins = [60, 70, 80, 90, 101]
+    labels = ["60-70", "70-80", "80-90", "90+"]
+    df["bucket"] = pd.cut(df[score_col], bins=bins, labels=labels, right=False)
+
+    grouped = df.groupby("bucket", observed=True).agg(
+        acc_10d=("beat_spy_10d", "mean"),
+        acc_30d=("beat_spy_30d", "mean"),
+        count=(score_col, "count"),
+    ).reset_index()
+
+    grouped["acc_10d"] = grouped["acc_10d"] * 100
+    grouped["acc_30d"] = grouped["acc_30d"] * 100
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Bar(
+            x=grouped["bucket"].astype(str),
+            y=grouped["acc_10d"],
+            name="10d Accuracy",
+            marker_color="#1f77b4",
+            text=grouped["acc_10d"].round(1).astype(str) + "%",
+            textposition="outside",
+            hovertemplate="Bucket: %{x}<br>10d Accuracy: %{y:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=grouped["bucket"].astype(str),
+            y=grouped["acc_30d"],
+            name="30d Accuracy",
+            marker_color="#ff7f0e",
+            text=grouped["acc_30d"].round(1).astype(str) + "%",
+            textposition="outside",
+            hovertemplate="Bucket: %{x}<br>30d Accuracy: %{y:.1f}%<extra></extra>",
+        )
+    )
+
+    # 50% reference line
+    fig.add_hline(
+        y=50,
+        line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
+        annotation_text="50%",
+        annotation_position="top right",
+    )
+
+    fig.update_layout(
+        title="Signal Accuracy by Score Bucket",
+        xaxis=dict(title="Score Bucket", categoryorder="array", categoryarray=labels),
+        yaxis=dict(
+            title="Accuracy (%)",
+            ticksuffix="%",
+            range=[0, 110],
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.07)",
+        ),
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(t=60, b=40, l=60, r=20),
+    )
+    return fig
+
+
+def make_accuracy_by_regime_chart(perf_df: pd.DataFrame, macro_df: pd.DataFrame) -> go.Figure:
+    """
+    Grouped bar chart: accuracy by market regime (bull, neutral, bear, caution).
+    Joins perf_df to macro_df on date. Two bars per regime: 10d and 30d.
+
+    perf_df needs: score_date, beat_spy_10d, beat_spy_30d
+    macro_df needs: date, regime
+    """
+    if perf_df is None or perf_df.empty or macro_df is None or macro_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Accuracy by Regime — No data available")
+        return fig
+
+    perf = perf_df.copy()
+    macro = macro_df.copy()
+
+    perf["score_date"] = pd.to_datetime(perf["score_date"]).dt.date.astype(str)
+    macro["date"] = pd.to_datetime(macro["date"]).dt.date.astype(str)
+
+    merged = perf.merge(macro[["date", "regime"]], left_on="score_date", right_on="date", how="left")
+    merged["regime"] = merged["regime"].fillna("unknown")
+
+    for col in ["beat_spy_10d", "beat_spy_30d"]:
+        if col in merged.columns:
+            merged[col] = pd.to_numeric(merged[col], errors="coerce")
+
+    grouped = (
+        merged.groupby("regime")
+        .agg(acc_10d=("beat_spy_10d", "mean"), acc_30d=("beat_spy_30d", "mean"), count=("beat_spy_10d", "count"))
+        .reset_index()
+    )
+    grouped["acc_10d"] = grouped["acc_10d"] * 100
+    grouped["acc_30d"] = grouped["acc_30d"] * 100
+
+    regime_order = ["bull", "neutral", "bear", "caution", "unknown"]
+    grouped["regime"] = pd.Categorical(grouped["regime"], categories=regime_order, ordered=True)
+    grouped = grouped.sort_values("regime")
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Bar(
+            x=grouped["regime"].astype(str),
+            y=grouped["acc_10d"],
+            name="10d Accuracy",
+            marker_color="#1f77b4",
+            text=grouped["acc_10d"].round(1).astype(str) + "%",
+            textposition="outside",
+            hovertemplate="Regime: %{x}<br>10d Accuracy: %{y:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=grouped["regime"].astype(str),
+            y=grouped["acc_30d"],
+            name="30d Accuracy",
+            marker_color="#ff7f0e",
+            text=grouped["acc_30d"].round(1).astype(str) + "%",
+            textposition="outside",
+            hovertemplate="Regime: %{x}<br>30d Accuracy: %{y:.1f}%<extra></extra>",
+        )
+    )
+
+    fig.add_hline(
+        y=50,
+        line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
+        annotation_text="50%",
+        annotation_position="top right",
+    )
+
+    fig.update_layout(
+        title="Signal Accuracy by Market Regime",
+        xaxis=dict(title="Market Regime"),
+        yaxis=dict(
+            title="Accuracy (%)",
+            ticksuffix="%",
+            range=[0, 110],
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.07)",
+        ),
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(t=60, b=40, l=60, r=20),
+    )
+    return fig
+
+
+def make_alpha_distribution_chart(perf_df: pd.DataFrame) -> go.Figure:
+    """
+    Histogram of per-signal alpha (return_10d - spy_10d_return).
+    Two panels: score >= 70 and all signals. Mean and median vertical lines.
+
+    perf_df needs: composite_score (or score), return_10d, spy_10d_return
+    """
+    if perf_df is None or perf_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Alpha Distribution — No data available")
+        return fig
+
+    df = perf_df.copy()
+    score_col = "composite_score" if "composite_score" in df.columns else "score"
+
+    for col in [score_col, "return_10d", "spy_10d_return"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df["alpha_10d"] = df["return_10d"] - df["spy_10d_return"]
+    df = df.dropna(subset=["alpha_10d"])
+
+    all_alpha = df["alpha_10d"] * 100
+    if score_col in df.columns:
+        high_score_alpha = df.loc[df[score_col] >= 70, "alpha_10d"] * 100
+    else:
+        high_score_alpha = all_alpha
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=["All Signals", "Score ≥ 70"],
+        shared_yaxes=False,
+    )
+
+    def _add_histogram(data: pd.Series, row: int, col: int, name: str, color: str):
+        if data.empty:
+            return
+        fig.add_trace(
+            go.Histogram(
+                x=data,
+                name=name,
+                marker_color=color,
+                opacity=0.75,
+                nbinsx=30,
+                hovertemplate="Alpha: %{x:.1f}%<br>Count: %{y}<extra></extra>",
+            ),
+            row=row,
+            col=col,
+        )
+        mean_val = data.mean()
+        median_val = data.median()
+        # Mean line
+        fig.add_vline(
+            x=mean_val,
+            line=dict(color="red", width=2, dash="dash"),
+            annotation_text=f"Mean: {mean_val:.1f}%",
+            annotation_position="top right",
+            row=row,
+            col=col,
+        )
+        # Median line
+        fig.add_vline(
+            x=median_val,
+            line=dict(color="blue", width=2, dash="dot"),
+            annotation_text=f"Median: {median_val:.1f}%",
+            annotation_position="top left",
+            row=row,
+            col=col,
+        )
+
+    _add_histogram(all_alpha, 1, 1, "All Signals", "#7f7f7f")
+    _add_histogram(high_score_alpha, 1, 2, "Score ≥ 70", "#1f77b4")
+
+    fig.update_layout(
+        title="Alpha Distribution (10d Return vs SPY)",
+        showlegend=False,
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(t=80, b=40, l=60, r=20),
+    )
+    fig.update_xaxes(title_text="10d Alpha (%)", ticksuffix="%")
+    fig.update_yaxes(title_text="Count")
+
+    return fig

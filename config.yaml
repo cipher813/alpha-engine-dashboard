@@ -1,0 +1,20 @@
+s3:
+  research_bucket: alpha-engine-research
+  trades_bucket: alpha-engine-executor
+
+paths:
+  signals: signals/{date}/signals.json
+  research_db: research.db
+  trades_full: trades/trades_full.csv
+  eod_pnl: trades/eod_pnl.csv
+  backtest_prefix: backtest/
+  scoring_weights: config/scoring_weights.json
+  scoring_weights_history_prefix: config/scoring_weights_history/
+
+cache_ttl:
+  signals: 900      # 15 min
+  trades: 900       # 15 min
+  research: 3600    # 1 hour
+  backtest: 3600    # 1 hour
+
+drawdown_circuit_breaker: -0.08  # -8%
