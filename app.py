@@ -228,9 +228,10 @@ def main():
     # -----------------------------------------------------------------------
     st.header("Today's Snapshot")
 
+    nav = daily_ret_norm = spy_ret_norm = alpha_norm = None
+
     if eod_df is None or eod_df.empty:
         st.warning("Portfolio data not available yet.")
-        nav = daily_ret = vs_spy = None
         today_row = None
     else:
         eod_df["date"] = pd.to_datetime(eod_df["date"])
@@ -355,7 +356,7 @@ def main():
             st.info("No macro snapshot for today.")
         else:
             row = today_macro.iloc[-1]
-            regime = row.get("regime", "—")
+            regime = row.get("market_regime", row.get("regime", "—"))
             vix = row.get("vix", "—")
             yield_10yr = row.get("yield_10yr", row.get("10yr_yield", "—"))
 

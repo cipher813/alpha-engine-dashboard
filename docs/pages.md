@@ -1,0 +1,280 @@
+# Pages Reference
+
+Per-page field and chart documentation.
+
+---
+
+## Home (`app.py`)
+
+Entry point. Answers: _is everything healthy right now?_
+
+### System Health
+
+Four status indicators (🟢/🟡/🔴):
+
+| Indicator | Green | Yellow | Red |
+|-----------|-------|--------|-----|
+| Research Lambda | signals.json found today | Found yesterday | Not found in 2+ days |
+| IB Gateway | eod_pnl row today | Row yesterday | No row in 3+ days |
+| Backtester | Ran within 7 days | Ran within 30 days | Older than 30 days |
+| Signal Quality | <10% stale signals | 10–30% stale | >30% stale |
+
+### Today's Snapshot
+
+| Card | Source |
+|------|--------|
+| Portfolio NAV | `eod_pnl.portfolio_nav` (most recent row) |
+| Daily Return | `eod_pnl.daily_return_pct` |
+| vs SPY (Alpha) | `eod_pnl.daily_alpha_pct` |
+| Signal Count | ENTER/EXIT/HOLD counts from today's signals.json |
+
+### Today's Signals
+
+Buy candidates from signals.json sorted by score descending. Color coded by signal type:
+
+- ENTER — green (`#d4edda`)
+- EXIT — red (`#f8d7da`)
+- REDUCE — orange (`#fff3cd`)
+- HOLD — gray (`#f8f9fa`)
+
+### Market Context
+
+Regime, VIX, 10yr yield from `macro_snapshots` for today's date.
+
+---
+
+## Page 1: Portfolio (`pages/1_Portfolio.py`)
+
+Answers: _how is the paper portfolio performing vs. SPY?_
+
+### Charts
+
+**NAV vs SPY** (`charts/nav_chart.py`)
+- Cumulative return % from first eod_pnl row
+- Green shading where portfolio > SPY; red where below
+- Hover shows date, portfolio %, SPY %, alpha %
+
+**Daily Alpha** (`charts/alpha_chart.py`)
+- Bar chart: green bars for positive alpha days, red for negative
+- Secondary axis: cumulative alpha line overlay
+
+**Drawdown**
+- Area chart of `(NAV - peak_NAV) / peak_NAV`
+- Red fill; dashed horizontal line at circuit breaker threshold (`-8%` from config)
+
+### Current Positions
+
+Parsed from `eod_pnl.positions_snapshot` (JSON string). Joined with today's signals for current score.
+
+| Column | Source |
+|--------|--------|
+| Ticker | positions_snapshot key |
+| Shares | positions_snapshot |
+| Market Value | positions_snapshot |
+| % NAV | positions_snapshot |
+| Score (latest) | today's signals.json |
+| Return Since Entry | `(current price - entry_price) / entry_price` |
+
+### Summary Stats
+
+Computed from full eod_pnl history:
+
+| Stat | Formula |
+|------|---------|
+| Total return | `(NAV_last / NAV_first) - 1` |
+| Sharpe (annualized) | `mean(daily_return) / std(daily_return) * √252` (requires ≥30 rows) |
+| Max drawdown | `min((NAV - peak_NAV) / peak_NAV)` |
+| Best / worst day | Max/min of `daily_return_pct` |
+| Days positive/negative | Count of positive/negative `daily_alpha_pct` |
+| Avg daily alpha | `mean(daily_alpha_pct)` |
+
+---
+
+## Page 2: Signals (`pages/2_Signals.py`)
+
+Answers: _what are all the signals today and why?_
+
+### Date Picker
+
+Dropdown of all available `signals/{date}/` S3 prefixes, defaulting to most recent.
+
+### Signal Table
+
+Full universe from signals.json. Filterable by:
+- Sector (multiselect)
+- Signal type (multiselect)
+- Minimum score (slider)
+
+Stale signals shown with ⚠ badge.
+
+### Ticker Detail Expander
+
+Click any row to expand:
+- Thesis summary paragraph
+- Sub-score horizontal bar chart (technical / news / research)
+- 30-day score history line chart (from `investment_thesis` table)
+- Signal history table (date, signal, score, conviction)
+- Performance outcomes if available in `score_performance` (✅/❌/⏳)
+
+### Sector Ratings
+
+| Column | Source |
+|--------|--------|
+| Sector | signals.json sector_ratings keys |
+| Rating | OW / MW / UW |
+| Modifier | +/- modifier |
+| Rationale | Snippet from signals.json |
+
+Color: OW = green, UW = red, MW = neutral.
+
+---
+
+## Page 3: Signal Quality (`pages/3_Signal_Quality.py`)
+
+Answers: _are the signals getting better or worse?_
+
+**Note:** Meaningful after ~Week 4 (~200 rows with `beat_spy_10d` populated). Shows a data loading banner until then.
+
+### Charts (`charts/accuracy_chart.py`)
+
+**Accuracy Trend**
+- Rolling 4-week accuracy (% of BUY signals beating SPY)
+- Two lines: accuracy_10d and accuracy_30d
+- Dashed 50% reference line; shaded band at 55%+
+
+**Accuracy by Score Bucket**
+- Grouped bars: 60–70, 70–80, 80–90, 90+
+- Two bars per bucket: 10d and 30d accuracy
+
+**Accuracy by Regime**
+- Grouped bars: bull, neutral, bear, caution
+- Joins `score_performance` to `macro_snapshots` on date
+- Uses `market_regime` column (falls back to `regime` if present)
+
+**Alpha Distribution**
+- Histogram of `return_10d - spy_10d_return`
+- Mean and median lines; two panels: score ≥ 70 and all signals
+
+### Scoring Weights
+
+Current weight metric cards from `scoring_weights.json`.
+
+Weight history line chart (`charts/attribution_chart.make_weight_history_chart`) from all `config/scoring_weights_history/{date}.json` files.
+
+---
+
+## Page 4: Research (`pages/4_Research.py`)
+
+Answers: _what is driving signal quality — technical, news, or research?_
+
+### Ticker Search
+
+Text input with selectbox autocomplete from `investment_thesis` distinct symbols. Default: top 10 by most recent score.
+
+### Charts
+
+**Score History**
+- Composite score line (bold)
+- Three faint sub-score lines: technical, news, research
+- Signal markers: ENTER ▲ green, EXIT ▼ red, REDUCE ◆ orange
+- Source: `investment_thesis` joined to `trades_full.csv`
+
+**Conviction History**
+- Line chart: rising=+1, stable=0, declining=-1
+
+### Performance Outcomes
+
+From `score_performance` for selected ticker:
+
+| Column | Meaning |
+|--------|---------|
+| Score Date | `score_date` |
+| Score | Score at time of signal |
+| Return 10d | `return_10d` |
+| SPY 10d | `spy_10d_return` |
+| Beat? 10d | ✅ / ❌ / ⏳ |
+| Return 30d | `return_30d` |
+| SPY 30d | `spy_30d_return` |
+| Beat? 30d | ✅ / ❌ / ⏳ |
+
+⏳ = outcome not yet populated (within 10/30 trading days of score_date).
+
+### Thesis Timeline
+
+Expandable list of `thesis_summary` entries from `investment_thesis` for selected ticker, ordered by date descending.
+
+---
+
+## Page 5: Backtester (`pages/5_Backtester.py`)
+
+Shows the latest backtester run output.
+
+### Sections
+
+**Latest Run Banner**
+- Date, status, n_samples from `metrics.json`
+
+**Portfolio Simulation Stats**
+- Total return, Sharpe, max drawdown, Calmar ratio, win rate, total trades
+- Source: `metrics.json`
+
+**Param Sweep Heatmap**
+- X: `min_score` values; Y: `max_position_pct` values; Color: Sharpe ratio
+- One tab per `drawdown_circuit_breaker` value
+- Source: `param_sweep.csv`
+- Top 5 combinations table below heatmap
+
+**Signal Quality Summary**
+- Accuracy 10d/30d with n= counts
+- Avg alpha 10d/30d
+- By-threshold table from `signal_quality.csv`
+
+**Sub-Score Attribution**
+- Horizontal bar chart: correlation of each sub-score with beat_spy_10d/30d
+- Source: `attribution.json`
+
+**Weight Recommendation**
+- Table: current vs suggested weights with change direction
+- Status badge: Applied / Not applied (insufficient data)
+
+**Raw Report**
+- Collapsible expander rendering `report.md` as markdown
+
+---
+
+## Page 6: Trade Log (`pages/6_Trade_Log.py`)
+
+Full audit trail of every order placed.
+
+### Filters
+
+| Filter | Type |
+|--------|------|
+| Date range | Date input (start/end) |
+| Action | Multiselect: ENTER / EXIT / REDUCE |
+| Ticker | Text input |
+| Market regime | Multiselect |
+| Min score | Slider (0–100) |
+
+### Trade Table
+
+Paginated at 25 rows/page. Columns from `trades_full.csv`:
+
+`Date · Ticker · Action · Shares · Price · Fill Price · NAV at Order · Position % · Score · Conviction · Rating · Sector Rating · Regime · Upside · IB Order ID`
+
+Download button exports filtered view as CSV.
+
+### Trade Summary Stats
+
+Aggregated from filtered rows:
+- Total ENTER / EXIT / REDUCE counts
+- Avg score at ENTER
+- Most common regime at ENTER
+- Most active sectors (top 3)
+- Avg position size % NAV
+
+### Outcome Join
+
+For ENTER trades with a matching `score_performance` row (symbol + date):
+- Shows `beat_spy_10d` and `beat_spy_30d` inline
+- ✅ beat SPY / ❌ did not / ⏳ outcome pending

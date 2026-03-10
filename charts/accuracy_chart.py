@@ -214,7 +214,15 @@ def make_accuracy_by_regime_chart(perf_df: pd.DataFrame, macro_df: pd.DataFrame)
     perf["score_date"] = pd.to_datetime(perf["score_date"]).dt.date.astype(str)
     macro["date"] = pd.to_datetime(macro["date"]).dt.date.astype(str)
 
-    merged = perf.merge(macro[["date", "regime"]], left_on="score_date", right_on="date", how="left")
+    # Support both "regime" and "market_regime" column names
+    regime_col = "regime" if "regime" in macro.columns else "market_regime" if "market_regime" in macro.columns else None
+    if regime_col is None:
+        fig = go.Figure()
+        fig.update_layout(title="Accuracy by Regime — No regime column in macro data")
+        return fig
+
+    merged = perf.merge(macro[["date", regime_col]], left_on="score_date", right_on="date", how="left")
+    merged = merged.rename(columns={regime_col: "regime"})
     merged["regime"] = merged["regime"].fillna("unknown")
 
     for col in ["beat_spy_10d", "beat_spy_30d"]:
