@@ -253,3 +253,29 @@ def load_backtest_file(date_str: str, filename: str):
         return download_s3_text(_research_bucket(), key)
     else:
         return download_s3_text(_research_bucket(), key)
+
+
+def load_predictions_json(date_str: str | None = None) -> dict:
+    """Load predictor predictions from S3. Returns {} on any failure."""
+    if date_str:
+        key = f"predictor/predictions/{date_str}.json"
+    else:
+        key = "predictor/predictions/latest.json"
+    try:
+        client = get_s3_client()
+        response = client.get_object(Bucket=_research_bucket(), Key=key)
+        data = json.loads(response["Body"].read())
+        pred_list = data.get("predictions", [])
+        return {p["ticker"]: p for p in pred_list if "ticker" in p}
+    except Exception:
+        return {}
+
+
+def load_predictor_metrics() -> dict:
+    """Load predictor metrics from S3. Returns {} on any failure."""
+    try:
+        client = get_s3_client()
+        response = client.get_object(Bucket=_research_bucket(), Key="predictor/metrics/latest.json")
+        return json.loads(response["Body"].read())
+    except Exception:
+        return {}

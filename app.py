@@ -18,6 +18,7 @@ from loaders.s3_loader import (
     load_eod_pnl,
     load_signals_json,
     load_trades_full,
+    load_predictor_metrics,
     check_key_exists,
 )
 from loaders.signal_loader import (
@@ -157,6 +158,24 @@ def _check_backtester() -> tuple[bool | None, str]:
         return None, f"Last: {latest}"
 
 
+def _check_predictor(metrics: dict) -> tuple[bool | None, str]:
+    """Check predictor health via metrics/latest.json hit rate and freshness."""
+    if not metrics:
+        return False, "No metrics found"
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+    last_run = metrics.get("last_run_utc", "")[:10]
+    hit_rate = metrics.get("hit_rate_30d_rolling", 0.0)
+    if last_run != today:
+        return False, f"Not run today (last: {last_run or 'unknown'})"
+    if hit_rate >= 0.52:
+        return True, f"Hit rate {hit_rate:.1%}"
+    elif hit_rate >= 0.48:
+        return None, f"Hit rate {hit_rate:.1%} (degraded)"
+    return False, f"Hit rate {hit_rate:.1%} (below threshold)"
+
+
 def _check_signal_quality(signals_data: dict | None) -> tuple[bool | None, str]:
     """
     Check signal quality via stale flag count in today's signals.
@@ -192,6 +211,7 @@ def main():
         eod_df = load_eod_pnl()
         signals_data = load_signals_json(today)
         macro_df = get_macro_snapshots()
+        predictor_metrics = load_predictor_metrics()
 
     # -----------------------------------------------------------------------
     # Section 1: System Health
@@ -202,8 +222,9 @@ def main():
     ib_ok, ib_msg = _check_ib_gateway(eod_df)
     bt_ok, bt_msg = _check_backtester()
     sq_ok, sq_msg = _check_signal_quality(signals_data)
+    pred_ok, pred_msg = _check_predictor(predictor_metrics)
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         badge = _status_badge(lambda_ok)
@@ -220,6 +241,10 @@ def main():
     with col4:
         badge = _status_badge(sq_ok)
         st.metric(label=f"{badge} Signal Quality", value=sq_msg)
+
+    with col5:
+        badge = _status_badge(pred_ok)
+        st.metric(label=f"{badge} Predictor", value=pred_msg)
 
     st.divider()
 

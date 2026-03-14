@@ -19,6 +19,7 @@ from loaders.signal_loader import (
     get_sector_ratings_df,
 )
 from loaders.db_loader import get_macro_snapshots, get_score_history, get_score_performance
+from loaders.s3_loader import load_predictions_json
 
 st.set_page_config(page_title="Signals — Alpha Engine", layout="wide")
 
@@ -65,9 +66,10 @@ selected_date = st.selectbox(
     help="Pick the date whose signals.json to view",
 )
 
-# ---- Load signals ----
+# ---- Load signals and predictions ----
 with st.spinner(f"Loading signals for {selected_date}..."):
     signals_data = load_signals(selected_date)
+    predictions = load_predictions_json(selected_date)
 
 if not signals_data:
     st.warning(f"No signals available for {selected_date}.")
@@ -162,10 +164,27 @@ st.caption(f"Showing {len(filtered_df)} of {len(sig_df)} signals")
 # -----------------------------------------------------------------------
 st.subheader("Signal Table")
 
+# Merge predictor columns into display df
+if predictions:
+    filtered_df["Prediction"] = filtered_df["ticker"].map(
+        lambda t: {"UP": "UP ↑", "DOWN": "DOWN ↓", "FLAT": "FLAT →"}.get(
+            (predictions.get(t) or {}).get("predicted_direction", ""), ""
+        )
+    )
+    filtered_df["Confidence"] = filtered_df["ticker"].map(
+        lambda t: (predictions.get(t) or {}).get("prediction_confidence")
+    )
+    # Blank out low-confidence entries
+    filtered_df.loc[
+        pd.to_numeric(filtered_df["Confidence"], errors="coerce").fillna(0) < 0.65,
+        "Confidence"
+    ] = None
+
 display_cols = [
     c for c in [
         "ticker", "sector", "signal", "score", "conviction",
         "rating", "technical", "news", "research",
+        "Prediction", "Confidence",
         "price_target_upside", "stale", "thesis_summary"
     ]
     if c in filtered_df.columns
@@ -230,6 +249,53 @@ if selected_ticker:
                     margin=dict(t=40, b=30, l=100, r=60),
                 )
                 st.plotly_chart(sub_fig, use_container_width=True)
+
+            # Predictor probability bar
+            pred = predictions.get(selected_ticker, {}) if predictions else {}
+            if pred:
+                p_up = pred.get("p_up", 0) or 0
+                p_flat = pred.get("p_flat", 0) or 0
+                p_down = pred.get("p_down", 0) or 0
+                confidence = pred.get("prediction_confidence", 0) or 0
+                direction = pred.get("predicted_direction", "")
+
+                pred_fig = go.Figure()
+                pred_fig.add_trace(go.Bar(
+                    x=[p_up], y=[""], orientation="h",
+                    name="P(UP)", marker_color="#28a745",
+                    text=[f"P(UP): {p_up:.0%}"], textposition="inside",
+                ))
+                pred_fig.add_trace(go.Bar(
+                    x=[p_flat], y=[""], orientation="h",
+                    name="P(FLAT)", marker_color="#6c757d",
+                    text=[f"P(FLAT): {p_flat:.0%}"], textposition="inside",
+                ))
+                pred_fig.add_trace(go.Bar(
+                    x=[p_down], y=[""], orientation="h",
+                    name="P(DOWN)", marker_color="#dc3545",
+                    text=[f"P(DOWN): {p_down:.0%}"], textposition="inside",
+                ))
+                pred_fig.update_layout(
+                    barmode="stack", title=f"{selected_ticker} Predictor Probabilities",
+                    xaxis=dict(range=[0, 1], tickformat=".0%"),
+                    height=120, margin=dict(t=40, b=20, l=20, r=20),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    showlegend=True, legend=dict(orientation="h", y=-0.3),
+                )
+                st.plotly_chart(pred_fig, use_container_width=True)
+
+                if confidence >= 0.65:
+                    modifier = (p_up - p_down) * 10.0 * confidence
+                    sign = "+" if modifier >= 0 else ""
+                    st.caption(
+                        f"Predictor: **{direction}** (confidence {confidence:.0%}) — "
+                        f"Score modifier applied: **{sign}{modifier:.1f} pts**"
+                    )
+                else:
+                    st.caption(
+                        f"Predictor: {direction or '—'} (confidence {confidence:.0%}) — "
+                        f"Modifier skipped (confidence < 65%)"
+                    )
 
             # 30-day score history from research DB
             score_hist = get_score_history(selected_ticker)

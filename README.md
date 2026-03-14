@@ -41,58 +41,84 @@ streamlit run app.py --server.port=8501
 
 ## Accessing the Dashboard via SSH Tunnel
 
-The EC2 security group does not expose port 8501 publicly. Access is via SSH tunnel from your local machine.
+Port 8501 is not exposed publicly. You need two things running at the same time:
+1. Streamlit running on EC2
+2. An SSH tunnel open on your local machine that forwards port 8501
 
-### One-time: add your key to SSH config
+---
 
-Add this to `~/.ssh/config` on your local machine (create the file if it doesn't exist):
+### Step 1 — Start Streamlit on EC2
+
+SSH into the server and start the dashboard in the background so it keeps running after you close the terminal:
+
+```bash
+# On EC2
+cd ~/alpha-engine-dashboard
+source .venv/bin/activate
+nohup streamlit run app.py --server.port=8501 --server.headless=true > nohup.out 2>&1 &
+```
+
+You only need to do this once (or after a reboot). To confirm it's running:
+
+```bash
+# On EC2
+pgrep -a streamlit
+```
+
+You can now close the EC2 terminal. Streamlit keeps running in the background.
+
+---
+
+### Step 2 — Open the tunnel from your local machine
+
+Open a **new terminal on your Mac** (not on EC2) and run:
+
+```bash
+# On your Mac
+ssh -i ~/.ssh/your-key.pem -L 8501:localhost:8501 -N ec2-user@3.236.87.228
+```
+
+Replace `your-key.pem` with your actual key file. The command will appear to hang with no output — that's correct. It's holding the tunnel open.
+
+Then open **http://localhost:8501** in your browser.
+
+Close the tunnel by pressing `Ctrl+C` in that terminal.
+
+---
+
+### Simplify with SSH config (recommended)
+
+Add this to `~/.ssh/config` on your Mac (create the file if it doesn't exist):
 
 ```
 Host alpha-engine
     HostName 3.236.87.228
     User ec2-user
     IdentityFile ~/.ssh/your-key.pem
-    LocalForward 8501 localhost:8501
 ```
 
-Replace `your-key.pem` with your actual key filename.
-
-### Open the tunnel
+After that, the tunnel command becomes:
 
 ```bash
-ssh alpha-engine
+# On your Mac
+ssh -L 8501:localhost:8501 -N alpha-engine
 ```
 
-Then open **http://localhost:8501** in your browser. The tunnel stays open as long as the SSH session is alive.
+And regular SSH login becomes just `ssh alpha-engine`.
 
-### Without SSH config (one-liner)
+---
 
-```bash
-ssh -i ~/.ssh/your-key.pem -L 8501:localhost:8501 ec2-user@3.236.87.228
-```
+### Summary: what runs where
 
-### Background tunnel (no interactive shell)
+| Terminal | Machine | Command |
+|----------|---------|---------|
+| EC2 (one-time setup) | EC2 | `nohup streamlit run app.py ...` |
+| Tunnel (keep open while browsing) | Your Mac | `ssh -L 8501:localhost:8501 -N alpha-engine` |
+| Browser | Your Mac | http://localhost:8501 |
 
-```bash
-ssh -i ~/.ssh/your-key.pem -L 8501:localhost:8501 -N -f ec2-user@3.236.87.228
-```
+## Keeping the Dashboard Running on EC2 (Permanent)
 
-`-N` = no remote command, `-f` = go to background. Close it later with:
-
-```bash
-pkill -f "8501:localhost:8501"
-```
-
-## Keeping the Dashboard Running on EC2
-
-### Option A: Keep alive in your SSH session (simplest)
-
-```bash
-source .venv/bin/activate
-nohup streamlit run app.py --server.port=8501 --server.headless=true &
-```
-
-Logs go to `nohup.out`. Stop with `pkill -f streamlit`.
+The `nohup` approach above works but stops if EC2 reboots. For a permanent setup use systemd:
 
 ### Option B: systemd service (recommended for persistence)
 

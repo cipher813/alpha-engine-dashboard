@@ -209,6 +209,78 @@ One row per Lambda run date.
 
 ---
 
+## Predictor Output
+
+### predictions.json
+
+**Path:** `s3://alpha-engine-research/predictor/predictions/{date}.json` (also `predictions/latest.json`)
+**Cache:** 15 min
+**Loader:** `loaders/s3_loader.load_predictions(date=None)` (`None` → latest)
+
+Per-ticker fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ticker` | string | |
+| `predicted_direction` | string | UP / FLAT / DOWN |
+| `prediction_confidence` | float | Max softmax probability (0–1) |
+| `p_up` | float | P(UP) from softmax |
+| `p_flat` | float | P(FLAT) from softmax |
+| `p_down` | float | P(DOWN) from softmax |
+
+Top-level fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `date` | string | YYYY-MM-DD |
+| `model_version` | string | e.g. `v1.2.0` |
+| `model_hit_rate_30d` | float | Rolling 30-day hit rate at time of inference |
+| `predictions` | list | Per-ticker prediction dicts |
+
+### predictor/metrics/latest.json
+
+**Path:** `s3://alpha-engine-research/predictor/metrics/latest.json`
+**Cache:** 15 min
+
+```json
+{
+  "model_version": "v1.2.0",
+  "last_trained": "2026-02-01",
+  "training_samples": 185420,
+  "test_hit_rate": 0.581,
+  "hit_rate_30d_rolling": 0.562,
+  "ic_30d": 0.067,
+  "ic_ir_30d": 0.41,
+  "n_predictions_today": 23,
+  "n_high_confidence": 8,
+  "last_run_utc": "2026-03-10T14:15:00Z",
+  "status": "ok"
+}
+```
+
+`status` values: `ok` | `degraded` (hit rate 0.48–0.52) | `stale` (not run today)
+
+---
+
+### research.db — predictor_outcomes table
+
+One row per (symbol, prediction_date). `correct_5d` populates ~5 trading days after prediction. Powers all predictor accuracy charts.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `symbol` | string | |
+| `prediction_date` | date | Date prediction was made |
+| `predicted_direction` | string | UP / FLAT / DOWN |
+| `prediction_confidence` | float | |
+| `p_up` | float | |
+| `p_flat` | float | |
+| `p_down` | float | |
+| `score_modifier_applied` | float | Points added to technical score (0 if gate not met) |
+| `actual_5d_return` | float | Populated ~5 trading days later |
+| `correct_5d` | bool | 1 if predicted direction matched actual return direction |
+
+---
+
 ## Scoring Weights
 
 **Current:** `s3://alpha-engine-research/config/scoring_weights.json`

@@ -10,7 +10,7 @@ Entry point. Answers: _is everything healthy right now?_
 
 ### System Health
 
-Four status indicators (🟢/🟡/🔴):
+Five status indicators (🟢/🟡/🔴):
 
 | Indicator | Green | Yellow | Red |
 |-----------|-------|--------|-----|
@@ -18,6 +18,7 @@ Four status indicators (🟢/🟡/🔴):
 | IB Gateway | eod_pnl row today | Row yesterday | No row in 3+ days |
 | Backtester | Ran within 7 days | Ran within 30 days | Older than 30 days |
 | Signal Quality | <10% stale signals | 10–30% stale | >30% stale |
+| Predictor | metrics/latest.json today, hit_rate_30d > 0.52 | Today but hit rate 0.48–0.52 | Not found today or hit rate < 0.48 |
 
 ### Today's Snapshot
 
@@ -105,13 +106,14 @@ Full universe from signals.json. Filterable by:
 - Signal type (multiselect)
 - Minimum score (slider)
 
-Stale signals shown with ⚠ badge.
+Stale signals shown with ⚠ badge. Predictor direction shown as UP ↑ / FLAT → / DOWN ↓ in a `Prediction` column (blank if no prediction available); `Confidence` column shown only when ≥ 0.65.
 
 ### Ticker Detail Expander
 
 Click any row to expand:
 - Thesis summary paragraph
 - Sub-score horizontal bar chart (technical / news / research)
+- Predictor probability bar: `p_up` (green) / `p_flat` (gray) / `p_down` (red) stacked horizontal; badge showing modifier applied or skipped with reason
 - 30-day score history line chart (from `investment_thesis` table)
 - Signal history table (date, signal, score, conviction)
 - Performance outcomes if available in `score_performance` (✅/❌/⏳)
@@ -160,6 +162,18 @@ Answers: _are the signals getting better or worse?_
 Current weight metric cards from `scoring_weights.json`.
 
 Weight history line chart (`charts/attribution_chart.make_weight_history_chart`) from all `config/scoring_weights_history/{date}.json` files.
+
+### Predictor Accuracy (collapsible)
+
+Only renders when `predictor_outcomes` has ≥ 20 rows with `correct_5d` populated. Shows data loading banner until then.
+
+**Rolling Hit Rate** — 20-day rolling hit rate from `predictor_outcomes`; three lines (UP / DOWN / all); dashed 50% baseline; shaded band at 55%+ (production-ready zone).
+
+**Hit Rate by Confidence Bucket** — grouped bars: 0.65–0.75, 0.75–0.85, 0.85–1.0. Validates that confidence is monotonically predictive. Non-monotonic result = calibration issue.
+
+**Predictor Impact on Outcomes** — two bars: signals where predictor modifier was applied vs. not. Metric: `beat_spy_10d` rate per group. Source: join `predictor_outcomes` to `score_performance`.
+
+**IC Over Time** — rolling 20-day Pearson IC of `p_up - p_down` vs `actual_5d_return`. Dashed 0.05 reference line (minimum viable threshold).
 
 ---
 
@@ -278,3 +292,57 @@ Aggregated from filtered rows:
 For ENTER trades with a matching `score_performance` row (symbol + date):
 - Shows `beat_spy_10d` and `beat_spy_30d` inline
 - ✅ beat SPY / ❌ did not / ⏳ outcome pending
+
+---
+
+## Page 7: Predictor (`pages/7_Predictor.py`)
+
+Answers: _is the model healthy, and what is it predicting today?_
+
+### Model Health Banner
+
+Model version, last trained date, training sample count from `predictor/metrics/latest.json`. Status badge: 🟢 Healthy / 🟡 Degraded / 🔴 Stale. Four metric cards:
+
+| Card | Source |
+|------|--------|
+| Hit Rate (30d rolling) | `hit_rate_30d_rolling` |
+| IC (30d) | `ic_30d` |
+| IC IR (30d) | `ic_ir_30d` |
+| High-confidence predictions today | `n_high_confidence` |
+
+### Today's Predictions Table
+
+Full universe from `predictions/latest.json`, sorted by `p_up - p_down` descending. Default filter: high-confidence only (≥ 0.65); toggle to show all.
+
+| Column | Source |
+|--------|--------|
+| Ticker | |
+| Direction | UP ↑ / FLAT → / DOWN ↓ with row color |
+| Confidence | `prediction_confidence` |
+| P(UP) / P(FLAT) / P(DOWN) | Raw softmax probabilities |
+| Score modifier | Points applied to technical score (`±` value or `—` if gate not met) |
+| Current rating | From today's signals.json |
+
+### Prediction History — Ticker Drilldown
+
+Selectbox: any ticker in `predictor_outcomes`. Charts:
+- Line: `p_up - p_down` over time (net directional signal, range −1 to +1)
+- Outcome markers on resolution date: ✅ correct / ❌ wrong
+- Running accuracy: `X correct of Y predictions (Z%)`
+
+### Confidence Calibration Chart
+
+Scatter: x = `prediction_confidence` decile, y = actual hit rate within that decile. A well-calibrated model produces a near-diagonal line. Meaningful after ~100 resolved predictions; shows calibration banner until then.
+
+### Prediction vs. Signal Disagreements
+
+Table of tickers where predictor direction conflicts with composite score signal — e.g., ENTER signal but DOWN prediction, or EXIT signal but UP prediction. These are the highest-tension cases for manual review.
+
+| Column | Source |
+|--------|--------|
+| Ticker | |
+| Signal | ENTER / EXIT / HOLD |
+| Score | Composite score |
+| Predicted Direction | UP / DOWN / FLAT |
+| Confidence | |
+| Outcome | ✅/❌/⏳ if resolved in `score_performance` |

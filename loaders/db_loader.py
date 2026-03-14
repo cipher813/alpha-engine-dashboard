@@ -144,3 +144,15 @@ def get_top_recent_symbols(n: int = 10) -> pd.DataFrame:
         LIMIT ?
     """
     return query_research_db(sql, params=(n,))
+
+
+def get_predictor_outcomes(symbol: str | None = None) -> pd.DataFrame:
+    """Query predictor_outcomes table. Returns empty DataFrame if table missing."""
+    if symbol:
+        return query_research_db(
+            "SELECT * FROM predictor_outcomes WHERE symbol = ? ORDER BY prediction_date DESC",
+            params=(symbol,),
+        )
+    return query_research_db(
+        "SELECT * FROM predictor_outcomes ORDER BY prediction_date DESC"
+    )

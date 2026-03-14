@@ -1,0 +1,279 @@
+"""
+Predictor page — Model health, today's predictions, history drilldown, signal disagreements.
+"""
+
+import sys
+import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_signals_json
+from loaders.db_loader import get_predictor_outcomes
+from loaders.signal_loader import get_available_signal_dates
+
+st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
+
+st.title("Predictor")
+
+# ---------------------------------------------------------------------------
+# Model health banner
+# ---------------------------------------------------------------------------
+
+metrics = load_predictor_metrics()
+
+if not metrics:
+    st.error("No predictor metrics found. Is the predictor running?")
+    st.info("Expected at `s3://alpha-engine-research/predictor/metrics/latest.json`")
+    st.stop()
+
+hit_rate = metrics.get("hit_rate_30d_rolling", 0.0) or 0.0
+if hit_rate >= 0.52:
+    badge = "🟢 Healthy"
+elif hit_rate >= 0.48:
+    badge = "🟡 Degraded"
+else:
+    badge = "🔴 Below Threshold"
+
+st.subheader(f"Model Health — {badge}")
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("Version", metrics.get("model_version", "—"))
+m2.metric("Last Trained", metrics.get("last_trained", "—"))
+m3.metric("Training Samples", f"{metrics.get('training_samples', 0):,}")
+m4.metric("High-Confidence Today", metrics.get("n_high_confidence", 0))
+
+m5, m6, m7, m8 = st.columns(4)
+m5.metric("Hit Rate (30d Rolling)", f"{hit_rate:.1%}")
+m6.metric("IC (30d)", f"{metrics.get('ic_30d', 0):.3f}")
+m7.metric("IC IR (30d)", f"{metrics.get('ic_ir_30d', 0):.3f}")
+m8.metric("Predictions Today", metrics.get("n_predictions_today", 0))
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Today's predictions table
+# ---------------------------------------------------------------------------
+
+st.subheader("Today's Predictions")
+
+today_str = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+predictions = load_predictions_json()
+signals_data = load_signals_json(today_str) if get_available_signal_dates() else None
+
+if not predictions:
+    st.info("No predictions available for today. Run the predictor to populate.")
+else:
+    show_all = st.toggle("Show all predictions (including low confidence)", value=False)
+
+    universe = {}
+    if signals_data:
+        universe = {t["ticker"]: t for t in signals_data.get("universe", [])}
+
+    rows = []
+    for ticker, pred in predictions.items():
+        conf = pred.get("prediction_confidence") or 0.0
+        if not show_all and conf < 0.65:
+            continue
+        direction = pred.get("predicted_direction", "—")
+        arrow = {"UP": "↑", "DOWN": "↓", "FLAT": "→"}.get(direction, "")
+        p_up = pred.get("p_up") or 0.0
+        p_down = pred.get("p_down") or 0.0
+        modifier = (p_up - p_down) * 10.0 * conf if conf >= 0.65 else 0.0
+        sig = universe.get(ticker, {})
+        rows.append({
+            "Ticker": ticker,
+            "Direction": f"{direction} {arrow}",
+            "Confidence": conf,
+            "P(UP)": p_up,
+            "P(FLAT)": pred.get("p_flat") or 0.0,
+            "P(DOWN)": p_down,
+            "Score Modifier": f"+{modifier:.1f}" if modifier > 0 else (f"{modifier:.1f}" if modifier != 0 else "—"),
+            "Signal": sig.get("signal", "—"),
+            "Score": sig.get("score", "—"),
+        })
+
+    if rows:
+        df = pd.DataFrame(rows).sort_values("Confidence", ascending=False).reset_index(drop=True)
+
+        def _row_color(row):
+            d = str(row.get("Direction", ""))
+            if "↑" in d:
+                return ["background-color: #d4edda"] * len(row)
+            elif "↓" in d:
+                return ["background-color: #f8d7da"] * len(row)
+            return [""] * len(row)
+
+        styled = df.style.apply(_row_color, axis=1)
+        for col in ["Confidence", "P(UP)", "P(FLAT)", "P(DOWN)"]:
+            styled = styled.format({col: "{:.0%}"}, na_rep="—")
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+    else:
+        st.info("No high-confidence predictions today. Toggle to show all.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Ticker drilldown
+# ---------------------------------------------------------------------------
+
+st.subheader("Prediction History — Ticker Drilldown")
+
+outcomes_df = get_predictor_outcomes()
+
+if outcomes_df.empty:
+    st.info("No prediction history available yet.")
+else:
+    tickers = sorted(outcomes_df["symbol"].dropna().unique().tolist())
+    selected = st.selectbox("Select ticker", options=tickers)
+
+    ticker_df = outcomes_df[outcomes_df["symbol"] == selected].copy()
+    ticker_df = ticker_df.sort_values("prediction_date")
+
+    if not ticker_df.empty:
+        p_up_col = pd.to_numeric(ticker_df["p_up"], errors="coerce").fillna(0)
+        p_down_col = pd.to_numeric(ticker_df["p_down"], errors="coerce").fillna(0)
+        ticker_df["net_signal"] = p_up_col - p_down_col
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=ticker_df["prediction_date"], y=ticker_df["net_signal"],
+            mode="lines", name="Net Signal",
+            line=dict(color="#1f77b4", width=2),
+            hovertemplate="<b>%{x}</b><br>Net: %{y:.2f}<extra></extra>",
+        ))
+        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+
+        resolved = ticker_df[ticker_df["correct_5d"].notna()]
+        correct = resolved[resolved["correct_5d"] == 1]
+        wrong = resolved[resolved["correct_5d"] == 0]
+
+        if not correct.empty:
+            fig.add_trace(go.Scatter(
+                x=correct["prediction_date"], y=correct["net_signal"],
+                mode="markers", name="Correct ✅",
+                marker=dict(symbol="circle", color="green", size=10),
+            ))
+        if not wrong.empty:
+            fig.add_trace(go.Scatter(
+                x=wrong["prediction_date"], y=wrong["net_signal"],
+                mode="markers", name="Wrong ❌",
+                marker=dict(symbol="x", color="red", size=10),
+            ))
+
+        fig.update_layout(
+            title=f"{selected} — Net Directional Signal (p_up − p_down)",
+            xaxis_title="Date", yaxis_title="Net Signal",
+            yaxis=dict(range=[-1.1, 1.1]),
+            plot_bgcolor="white", paper_bgcolor="white",
+            height=350, margin=dict(t=40, b=30, l=60, r=20),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        total = len(resolved)
+        n_correct = int(resolved["correct_5d"].sum()) if total > 0 else 0
+        acc = n_correct / total if total > 0 else 0
+        st.caption(f"Running accuracy: **{n_correct} correct of {total} predictions ({acc:.1%})**")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Confidence calibration chart
+# ---------------------------------------------------------------------------
+
+st.subheader("Confidence Calibration")
+
+if not outcomes_df.empty:
+    resolved_all = outcomes_df[outcomes_df["correct_5d"].notna()].copy()
+    resolved_all["prediction_confidence"] = pd.to_numeric(
+        resolved_all["prediction_confidence"], errors="coerce"
+    )
+    if len(resolved_all) < 100:
+        st.info(
+            f"Confidence calibration requires ≥100 resolved predictions "
+            f"(currently {len(resolved_all)}). A well-calibrated model produces a near-diagonal line."
+        )
+    else:
+        resolved_all["conf_decile"] = pd.qcut(
+            resolved_all["prediction_confidence"], q=10, duplicates="drop"
+        )
+        cal = resolved_all.groupby("conf_decile", observed=True).agg(
+            avg_conf=("prediction_confidence", "mean"),
+            hit_rate=("correct_5d", "mean"),
+            n=("correct_5d", "count"),
+        ).reset_index()
+
+        cal_fig = go.Figure()
+        cal_fig.add_trace(go.Scatter(
+            x=cal["avg_conf"], y=cal["hit_rate"],
+            mode="markers+lines", name="Actual",
+            marker=dict(size=cal["n"] / cal["n"].max() * 20 + 6, color="#1f77b4"),
+            hovertemplate="Conf: %{x:.2f}<br>Hit: %{y:.0%}<extra></extra>",
+        ))
+        cal_fig.add_trace(go.Scatter(
+            x=[0, 1], y=[0, 1],
+            mode="lines", name="Perfect calibration",
+            line=dict(dash="dash", color="gray"),
+        ))
+        cal_fig.update_layout(
+            title="Confidence Calibration (diagonal = well-calibrated)",
+            xaxis=dict(title="Avg Confidence in Decile", tickformat=".0%"),
+            yaxis=dict(title="Actual Hit Rate", tickformat=".0%"),
+            plot_bgcolor="white", paper_bgcolor="white",
+            height=350, margin=dict(t=40, b=40, l=60, r=20),
+        )
+        st.plotly_chart(cal_fig, use_container_width=True)
+else:
+    st.info("No prediction history available for calibration chart.")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Signal disagreements
+# ---------------------------------------------------------------------------
+
+st.subheader("Prediction vs. Signal Disagreements")
+st.caption("Tickers where predictor direction conflicts with composite score signal (high tension)")
+
+if predictions and signals_data:
+    universe_list = signals_data.get("universe", [])
+    disagreements = []
+    for ticker_data in universe_list:
+        ticker = ticker_data.get("ticker", "")
+        pred = predictions.get(ticker, {})
+        if not pred:
+            continue
+        conf = pred.get("prediction_confidence") or 0.0
+        if conf < 0.65:
+            continue
+        direction = pred.get("predicted_direction", "")
+        signal = ticker_data.get("signal", "")
+
+        is_disagreement = (
+            (signal == "ENTER" and direction == "DOWN") or
+            (signal == "EXIT" and direction == "UP")
+        )
+        if is_disagreement:
+            disagreements.append({
+                "Ticker": ticker,
+                "Signal": signal,
+                "Score": ticker_data.get("score", "—"),
+                "Predicted Direction": direction,
+                "Confidence": conf,
+            })
+
+    if disagreements:
+        dis_df = pd.DataFrame(disagreements)
+        dis_df = dis_df.sort_values("Confidence", ascending=False).reset_index(drop=True)
+        styled_dis = dis_df.style.format({"Confidence": "{:.0%}"}, na_rep="—")
+        st.dataframe(styled_dis, use_container_width=True, hide_index=True)
+        st.caption("These are the highest-tension cases for manual review before acting on a signal.")
+    else:
+        st.success("No signal/prediction disagreements today with high-confidence predictions.")
+else:
+    st.info("Load both signals and predictions to see disagreements.")
