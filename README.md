@@ -47,6 +47,8 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 | Research | 1 hr | Per-ticker score history, conviction timeline, thesis outcomes |
 | Backtester | 1 hr | Parameter sweep heatmap, attribution, weight recommendations |
 | Trade Log | 15 min | Full trade audit trail with filters and CSV export |
+| Predictor | 15 min | GBM predictions, hit rate, IC, calibration |
+| Slippage | 15 min | Execution quality: fill price vs order price, by action/regime |
 
 ---
 
@@ -93,7 +95,9 @@ alpha-engine-dashboard/
 │   ├── 3_Signal_Quality.py
 │   ├── 4_Research.py
 │   ├── 5_Backtester.py
-│   └── 6_Trade_Log.py
+│   ├── 6_Trade_Log.py
+│   ├── 7_Predictor.py
+│   └── 8_Slippage.py
 ├── loaders/
 │   ├── s3_loader.py          # S3 download helpers with TTL caching
 │   ├── db_loader.py          # SQLite read helpers (research.db)
@@ -138,6 +142,36 @@ sudo systemctl daemon-reload
 sudo systemctl enable dashboard
 sudo systemctl start dashboard
 ```
+
+---
+
+## Opportunities for Improvement
+
+### Missing Views
+
+- **Sector allocation visualization** — can't see portfolio concentration by sector. Essential for monitoring the 25% sector limit.
+- **Veto status display** — executor has a veto gate but the dashboard can't show which ENTER signals are currently blocked by the predictor.
+- **Correlation/concentration analysis** — can't see if holdings are clustered in correlated stocks (e.g., MSFT + AAPL + GOOGL all >0.8 correlation).
+- **Position-level P&L** — can't see entry price, unrealized P&L, or days held for each position.
+
+### Missing Analysis Views
+
+- **Model drift tracking** — predictor page shows 30-day rolling hit rate but no long-term trend (6-month degradation chart).
+- **Regime-specific alpha tracking** — can't see portfolio alpha split by bull vs bear markets.
+- **Win rate confidence intervals** — accuracy by score bucket shown without sample sizes or confidence bands.
+- **Sector rotation tracking** — can't see how sector allocations have shifted over time.
+- **Drawdown recovery speed** — can't measure how quickly the portfolio recovers from drawdowns.
+
+### System Health
+
+- **Health checks lack historical context** — "Yesterday's signals present" shows a yellow badge but should be red after 48 hours.
+- **Backtester health only checks recency** — doesn't check if the backtest actually failed, only if it ran recently.
+- **No executor failure detection** — IB Gateway health only checks that an eod_pnl entry exists, not whether the executor actually processed trades.
+
+### Data Loading
+
+- **Silent failures in S3 loader** — `_s3_get_object()` returns None on any exception without logging. Network errors, permission denials, and missing keys all look the same.
+- **Fragile schema assumptions** — hardcoded SQL and JSON field names throughout. Schema drift from upstream modules breaks pages silently.
 
 ---
 
