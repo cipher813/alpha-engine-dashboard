@@ -18,3 +18,6 @@ cache_ttl:
   backtest: 3600    # 1 hour
 
 drawdown_circuit_breaker: -0.08  # -8%
+
+risk_limits:
+  max_sector_pct: 0.25

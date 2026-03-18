@@ -6,13 +6,42 @@ Credentials come from the EC2 IAM role (no explicit creds needed).
 
 import io
 import json
+import logging
 import os
 import re
+from datetime import datetime
 
 import boto3
 import pandas as pd
 import streamlit as st
 import yaml
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# S3 error tracking
+# ---------------------------------------------------------------------------
+
+_recent_s3_errors: list[dict] = []
+_MAX_S3_ERRORS = 50
+
+
+def _record_s3_error(bucket: str, key: str, error_type: str, message: str):
+    """Append an error record (capped at _MAX_S3_ERRORS)."""
+    _recent_s3_errors.append({
+        "timestamp": datetime.utcnow().isoformat(),
+        "bucket": bucket,
+        "key": key,
+        "error_type": error_type,
+        "message": str(message)[:200],
+    })
+    if len(_recent_s3_errors) > _MAX_S3_ERRORS:
+        _recent_s3_errors.pop(0)
+
+
+def get_recent_s3_errors() -> list[dict]:
+    """Return the recent S3 error log (up to 50 entries)."""
+    return list(_recent_s3_errors)
 
 # ---------------------------------------------------------------------------
 # Config loading (module-level, cached forever via lru_cache-style singleton)
@@ -70,7 +99,18 @@ def _s3_get_object(bucket: str, key: str):
         return response["Body"].read()
     except client.exceptions.NoSuchKey:
         return None
-    except Exception:
+    except client.exceptions.ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        logger.error("S3 ClientError for %s/%s: %s", bucket, key, error_code)
+        _record_s3_error(bucket, key, "ClientError", str(e))
+        return None
+    except (ConnectionError, TimeoutError) as e:
+        logger.warning("S3 connection error for %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, type(e).__name__, str(e))
+        return None
+    except Exception as e:
+        logger.error("S3 unexpected error for %s/%s", bucket, key, exc_info=True)
+        _record_s3_error(bucket, key, type(e).__name__, str(e))
         return None
 
 
@@ -105,7 +145,9 @@ def list_s3_prefixes(bucket: str, prefix: str) -> list[str]:
                 if date_pattern.match(seg):
                     prefixes.add(seg)
         return sorted(prefixes)
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to list S3 prefixes %s/%s: %s", bucket, prefix, e)
+        _record_s3_error(bucket, prefix, type(e).__name__, str(e))
         return []
 
 
@@ -117,7 +159,11 @@ def download_s3_json(bucket: str, key: str) -> dict | list | None:
         response = client.get_object(Bucket=bucket, Key=key)
         raw = response["Body"].read()
         return json.loads(raw)
-    except Exception:
+    except client.exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        logger.error("Failed to download JSON %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, type(e).__name__, str(e))
         return None
 
 
@@ -128,8 +174,18 @@ def download_s3_csv(bucket: str, key: str) -> pd.DataFrame | None:
         client = get_s3_client()
         response = client.get_object(Bucket=bucket, Key=key)
         raw = response["Body"].read()
+    except client.exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        logger.error("Failed to download CSV %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, type(e).__name__, str(e))
+        return None
+
+    try:
         return pd.read_csv(io.BytesIO(raw))
-    except Exception:
+    except Exception as e:
+        logger.warning("CSV parse failed for %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, "CSVParseError", str(e))
         return None
 
 
@@ -140,7 +196,11 @@ def download_s3_text(bucket: str, key: str) -> str | None:
         client = get_s3_client()
         response = client.get_object(Bucket=bucket, Key=key)
         return response["Body"].read().decode("utf-8")
-    except Exception:
+    except client.exceptions.NoSuchKey:
+        return None
+    except Exception as e:
+        logger.error("Failed to download text %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, type(e).__name__, str(e))
         return None
 
 
@@ -150,7 +210,9 @@ def download_s3_binary(bucket: str, key: str, local_path: str) -> bool:
         client = get_s3_client()
         client.download_file(bucket, key, local_path)
         return True
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to download binary %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, type(e).__name__, str(e))
         return False
 
 
@@ -267,15 +329,39 @@ def load_predictions_json(date_str: str | None = None) -> dict:
         data = json.loads(response["Body"].read())
         pred_list = data.get("predictions", [])
         return {p["ticker"]: p for p in pred_list if "ticker" in p}
-    except Exception:
+    except client.exceptions.NoSuchKey:
+        return {}
+    except Exception as e:
+        logger.error("Failed to load predictions %s: %s", key, e)
+        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
         return {}
 
 
 def load_predictor_metrics() -> dict:
     """Load predictor metrics from S3. Returns {} on any failure."""
+    key = "predictor/metrics/latest.json"
     try:
         client = get_s3_client()
-        response = client.get_object(Bucket=_research_bucket(), Key="predictor/metrics/latest.json")
+        response = client.get_object(Bucket=_research_bucket(), Key=key)
         return json.loads(response["Body"].read())
-    except Exception:
+    except client.exceptions.NoSuchKey:
+        return {}
+    except Exception as e:
+        logger.error("Failed to load predictor metrics: %s", e)
+        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
+        return {}
+
+
+def load_predictor_params() -> dict:
+    """Load predictor_params.json from S3 config. Returns {} on any failure."""
+    key = "config/predictor_params.json"
+    try:
+        client = get_s3_client()
+        response = client.get_object(Bucket=_research_bucket(), Key=key)
+        return json.loads(response["Body"].read())
+    except client.exceptions.NoSuchKey:
+        return {}
+    except Exception as e:
+        logger.error("Failed to load predictor params: %s", e)
+        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
         return {}

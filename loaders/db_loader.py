@@ -3,6 +3,7 @@ SQLite research.db loader for the Alpha Engine Dashboard.
 Downloads research.db from S3 to /tmp and queries it via sqlite3.
 """
 
+import logging
 import sqlite3
 import os
 
@@ -10,6 +11,8 @@ import pandas as pd
 import streamlit as st
 
 from loaders.s3_loader import load_config, download_s3_binary
+
+logger = logging.getLogger(__name__)
 
 _DB_LOCAL_PATH = "/tmp/research.db"
 _DB_BUCKET_KEY = "research.db"
@@ -64,7 +67,8 @@ def query_research_db(sql: str, params=None) -> pd.DataFrame:
         if params:
             return pd.read_sql_query(sql, conn, params=params)
         return pd.read_sql_query(sql, conn)
-    except Exception:
+    except Exception as e:
+        logger.warning("Query failed: %s — %s", sql[:100], e)
         return pd.DataFrame()
 
 

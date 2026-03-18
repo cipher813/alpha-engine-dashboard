@@ -1,6 +1,6 @@
 """
 Signal Quality page — Accuracy trends, bucket/regime charts, alpha distribution,
-scoring weight history.
+scoring weight history, regime-specific alpha tracking.
 """
 
 import sys
@@ -14,12 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import plotly.graph_objects as go
 
 from loaders.db_loader import get_score_performance, get_macro_snapshots, get_predictor_outcomes
-from loaders.s3_loader import load_scoring_weights, load_scoring_weights_history
+from loaders.s3_loader import load_scoring_weights, load_scoring_weights_history, load_eod_pnl
 from charts.accuracy_chart import (
     make_accuracy_trend_chart,
     make_accuracy_by_bucket_chart,
     make_accuracy_by_regime_chart,
     make_alpha_distribution_chart,
+    make_regime_alpha_chart,
 )
 from charts.attribution_chart import make_weight_history_chart
 
@@ -83,6 +84,20 @@ if macro_df is None or macro_df.empty:
 else:
     regime_fig = make_accuracy_by_regime_chart(perf_df, macro_df)
     st.plotly_chart(regime_fig, use_container_width=True)
+
+# -----------------------------------------------------------------------
+# Section 3.5: Alpha by Market Regime (Gap #6)
+# -----------------------------------------------------------------------
+st.header("Alpha by Market Regime")
+if macro_df is None or macro_df.empty:
+    st.warning("Macro data not available — cannot show regime alpha.")
+else:
+    eod_df = load_eod_pnl()
+    if eod_df is not None and not eod_df.empty and "daily_alpha_pct" in eod_df.columns:
+        regime_alpha_fig = make_regime_alpha_chart(eod_df, macro_df)
+        st.plotly_chart(regime_alpha_fig, use_container_width=True)
+    else:
+        st.info("Portfolio P&L data not available for regime alpha analysis.")
 
 # -----------------------------------------------------------------------
 # Section 4: Alpha Distribution

@@ -2,10 +2,25 @@
 Signal accuracy charts for the Alpha Engine Dashboard.
 """
 
+import math
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+
+def _wilson_ci(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """
+    Compute Wilson score confidence interval (pure arithmetic, no scipy).
+    Returns (lower, upper) as proportions.
+    """
+    if total == 0:
+        return 0.0, 0.0
+    p_hat = successes / total
+    denominator = 1 + z * z / total
+    centre = (p_hat + z * z / (2 * total)) / denominator
+    margin = z * math.sqrt((p_hat * (1 - p_hat) + z * z / (4 * total)) / total) / denominator
+    return max(0.0, centre - margin), min(1.0, centre + margin)
 
 
 def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
@@ -38,7 +53,6 @@ def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
 
     # Shaded outperformance band (55%+)
-    x_range = [df["score_date"].min(), df["score_date"].max()]
     fig.add_hrect(
         y0=55,
         y1=100,
@@ -106,6 +120,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
     """
     Grouped bar chart: accuracy by score bucket (60-70, 70-80, 80-90, 90+).
     Two bars per bucket: accuracy_10d and accuracy_30d.
+    Includes Wilson CI error bars and sample size annotations.
 
     perf_df needs: composite_score (or score), beat_spy_10d, beat_spy_30d
     """
@@ -136,11 +151,25 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
     grouped = df.groupby("bucket", observed=True).agg(
         acc_10d=("beat_spy_10d", "mean"),
         acc_30d=("beat_spy_30d", "mean"),
+        sum_10d=("beat_spy_10d", "sum"),
+        sum_30d=("beat_spy_30d", "sum"),
         count=(score_col, "count"),
     ).reset_index()
 
     grouped["acc_10d"] = grouped["acc_10d"] * 100
     grouped["acc_30d"] = grouped["acc_30d"] * 100
+
+    # Wilson CI for error bars
+    ci_10d_lower, ci_10d_upper = [], []
+    ci_30d_lower, ci_30d_upper = [], []
+    for _, row in grouped.iterrows():
+        n = int(row["count"])
+        lo10, hi10 = _wilson_ci(int(row["sum_10d"]), n)
+        lo30, hi30 = _wilson_ci(int(row["sum_30d"]), n)
+        ci_10d_lower.append(row["acc_10d"] - lo10 * 100)
+        ci_10d_upper.append(hi10 * 100 - row["acc_10d"])
+        ci_30d_lower.append(row["acc_30d"] - lo30 * 100)
+        ci_30d_upper.append(hi30 * 100 - row["acc_30d"])
 
     fig = go.Figure()
 
@@ -153,6 +182,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
             text=grouped["acc_10d"].round(1).astype(str) + "%",
             textposition="outside",
             hovertemplate="Bucket: %{x}<br>10d Accuracy: %{y:.1f}%<extra></extra>",
+            error_y=dict(type="data", symmetric=False, array=ci_10d_upper, arrayminus=ci_10d_lower),
         )
     )
 
@@ -165,6 +195,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
             text=grouped["acc_30d"].round(1).astype(str) + "%",
             textposition="outside",
             hovertemplate="Bucket: %{x}<br>30d Accuracy: %{y:.1f}%<extra></extra>",
+            error_y=dict(type="data", symmetric=False, array=ci_30d_upper, arrayminus=ci_30d_lower),
         )
     )
 
@@ -176,13 +207,23 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
         annotation_position="top right",
     )
 
+    # Sample size annotations
+    for i, row in grouped.iterrows():
+        fig.add_annotation(
+            x=str(row["bucket"]),
+            y=-5,
+            text=f"(n={int(row['count'])})",
+            showarrow=False,
+            font=dict(size=10, color="gray"),
+        )
+
     fig.update_layout(
         title="Signal Accuracy by Score Bucket",
         xaxis=dict(title="Score Bucket", categoryorder="array", categoryarray=labels),
         yaxis=dict(
             title="Accuracy (%)",
             ticksuffix="%",
-            range=[0, 110],
+            range=[-10, 110],
             showgrid=True,
             gridcolor="rgba(0,0,0,0.07)",
         ),
@@ -377,4 +418,75 @@ def make_alpha_distribution_chart(perf_df: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="10d Alpha (%)", ticksuffix="%")
     fig.update_yaxes(title_text="Count")
 
+    return fig
+
+
+def make_regime_alpha_chart(eod_df: pd.DataFrame, macro_df: pd.DataFrame) -> go.Figure:
+    """
+    Grouped bar chart: average daily alpha by market regime.
+    Merges eod_pnl with macro on date.
+
+    eod_df needs: date, daily_alpha_pct
+    macro_df needs: date, regime
+    """
+    if eod_df is None or eod_df.empty or macro_df is None or macro_df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Alpha by Regime — No data available")
+        return fig
+
+    eod = eod_df.copy()
+    macro = macro_df.copy()
+
+    eod["date"] = pd.to_datetime(eod["date"]).dt.date.astype(str)
+    macro["date"] = pd.to_datetime(macro["date"]).dt.date.astype(str)
+
+    eod["daily_alpha_pct"] = pd.to_numeric(eod["daily_alpha_pct"], errors="coerce")
+    # Normalize: if values look like percentages (abs mean > 1), convert to decimal
+    if eod["daily_alpha_pct"].abs().mean() > 1.0:
+        eod["daily_alpha_pct"] = eod["daily_alpha_pct"] / 100.0
+
+    regime_col = "regime" if "regime" in macro.columns else "market_regime" if "market_regime" in macro.columns else None
+    if regime_col is None:
+        fig = go.Figure()
+        fig.update_layout(title="Alpha by Regime — No regime column")
+        return fig
+
+    merged = eod.merge(macro[["date", regime_col]], on="date", how="left")
+    merged = merged.rename(columns={regime_col: "regime"})
+    merged["regime"] = merged["regime"].fillna("unknown")
+
+    grouped = merged.groupby("regime").agg(
+        avg_alpha=("daily_alpha_pct", "mean"),
+        total_alpha=("daily_alpha_pct", "sum"),
+        days=("daily_alpha_pct", "count"),
+    ).reset_index()
+
+    regime_order = ["bull", "neutral", "bear", "caution", "unknown"]
+    grouped["regime"] = pd.Categorical(grouped["regime"], categories=regime_order, ordered=True)
+    grouped = grouped.sort_values("regime")
+
+    # Color bars by sign
+    colors = ["#28a745" if v >= 0 else "#dc3545" for v in grouped["avg_alpha"]]
+
+    fig = go.Figure(
+        go.Bar(
+            x=grouped["regime"].astype(str),
+            y=grouped["avg_alpha"] * 100,
+            marker_color=colors,
+            text=[f"{v*100:+.2f}%<br>({d}d)" for v, d in zip(grouped["avg_alpha"], grouped["days"])],
+            textposition="outside",
+            hovertemplate="Regime: %{x}<br>Avg Daily Alpha: %{y:.3f}%<br><extra></extra>",
+        )
+    )
+
+    fig.add_hline(y=0, line=dict(color="gray", width=1, dash="dash"))
+
+    fig.update_layout(
+        title="Average Daily Alpha by Market Regime",
+        xaxis=dict(title="Market Regime"),
+        yaxis=dict(title="Avg Daily Alpha (%)", ticksuffix="%", showgrid=True, gridcolor="rgba(0,0,0,0.07)"),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        margin=dict(t=60, b=40, l=60, r=20),
+    )
     return fig

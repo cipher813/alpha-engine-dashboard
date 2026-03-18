@@ -1,5 +1,6 @@
 """
-Predictor page — Model health, today's predictions, history drilldown, signal disagreements.
+Predictor page — Model health, performance trend, today's predictions, history drilldown,
+signal disagreements.
 """
 
 import sys
@@ -16,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_signals_json
 from loaders.db_loader import get_predictor_outcomes
 from loaders.signal_loader import get_available_signal_dates
+from charts.predictor_chart import make_model_drift_chart
 
 st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
 
@@ -53,6 +55,29 @@ m5.metric("Hit Rate (30d Rolling)", f"{hit_rate:.1%}")
 m6.metric("IC (30d)", f"{metrics.get('ic_30d', 0):.3f}")
 m7.metric("IC IR (30d)", f"{metrics.get('ic_ir_30d', 0):.3f}")
 m8.metric("Predictions Today", metrics.get("n_predictions_today", 0))
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Model Performance Trend (Gap #5)
+# ---------------------------------------------------------------------------
+
+st.subheader("Model Performance Trend")
+
+outcomes_df = get_predictor_outcomes()
+
+if outcomes_df.empty:
+    st.info("No prediction history available yet.")
+else:
+    resolved = outcomes_df[outcomes_df["correct_5d"].notna()].copy()
+    if len(resolved) < 60:
+        st.info(
+            f"Model drift chart requires ≥60 resolved predictions "
+            f"(currently {len(resolved)}). Check back after the predictor has been running longer."
+        )
+    else:
+        drift_fig = make_model_drift_chart(resolved)
+        st.plotly_chart(drift_fig, use_container_width=True)
 
 st.divider()
 
@@ -123,8 +148,6 @@ st.divider()
 # ---------------------------------------------------------------------------
 
 st.subheader("Prediction History — Ticker Drilldown")
-
-outcomes_df = get_predictor_outcomes()
 
 if outcomes_df.empty:
     st.info("No prediction history available yet.")

@@ -1,5 +1,5 @@
 """
-Signals page — Full signal universe table with filters, ticker detail, sector ratings.
+Signals page — Full signal universe table with filters, ticker detail, sector ratings, veto status.
 """
 
 import sys
@@ -19,7 +19,7 @@ from loaders.signal_loader import (
     get_sector_ratings_df,
 )
 from loaders.db_loader import get_macro_snapshots, get_score_history, get_score_performance
-from loaders.s3_loader import load_predictions_json
+from loaders.s3_loader import load_predictions_json, load_predictor_params
 
 st.set_page_config(page_title="Signals — Alpha Engine", layout="wide")
 
@@ -34,8 +34,14 @@ SIGNAL_COLORS = {
     "HOLD": "#f8f9fa",
 }
 
+VETO_COLOR = "#f5c6cb"
+
 
 def _color_signal_row(row: pd.Series) -> list[str]:
+    # If vetoed, use red-ish background
+    veto_val = str(row.get("Veto", ""))
+    if veto_val.startswith("VETOED"):
+        return [f"background-color: {VETO_COLOR}" for _ in row]
     sig = str(row.get("signal", "HOLD")).upper()
     color = SIGNAL_COLORS.get(sig, SIGNAL_COLORS["HOLD"])
     return [f"background-color: {color}" for _ in row]
@@ -66,10 +72,13 @@ selected_date = st.selectbox(
     help="Pick the date whose signals.json to view",
 )
 
-# ---- Load signals and predictions ----
+# ---- Load signals, predictions, and veto threshold ----
 with st.spinner(f"Loading signals for {selected_date}..."):
     signals_data = load_signals(selected_date)
     predictions = load_predictions_json(selected_date)
+    predictor_params = load_predictor_params()
+
+veto_threshold = predictor_params.get("veto_confidence", 0.65)
 
 if not signals_data:
     st.warning(f"No signals available for {selected_date}.")
@@ -180,11 +189,31 @@ if predictions:
         "Confidence"
     ] = None
 
+    # Veto column (Gap #2)
+    def _veto_status(row):
+        pred = predictions.get(row.get("ticker", ""), {})
+        if not pred:
+            return ""
+        direction = pred.get("predicted_direction", "")
+        conf = pred.get("prediction_confidence") or 0.0
+        if direction == "DOWN" and conf >= veto_threshold:
+            return f"VETOED ({conf:.0%})"
+        return ""
+
+    filtered_df["Veto"] = filtered_df.apply(_veto_status, axis=1)
+
+    # Veto summary banner
+    enter_signals = filtered_df[filtered_df["signal"] == "ENTER"]
+    vetoed_count = enter_signals["Veto"].str.startswith("VETOED").sum() if not enter_signals.empty else 0
+    total_enter = len(enter_signals)
+    if vetoed_count > 0:
+        st.warning(f"{vetoed_count} of {total_enter} ENTER signals currently vetoed by predictor (threshold: {veto_threshold:.0%})")
+
 display_cols = [
     c for c in [
         "ticker", "sector", "signal", "score", "conviction",
         "rating", "technical", "news", "research",
-        "Prediction", "Confidence",
+        "Prediction", "Confidence", "Veto",
         "price_target_upside", "stale", "thesis_summary"
     ]
     if c in filtered_df.columns

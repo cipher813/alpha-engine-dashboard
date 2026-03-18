@@ -5,7 +5,7 @@ Entry point for the Streamlit multi-page app.
 
 import sys
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -19,7 +19,10 @@ from loaders.s3_loader import (
     load_signals_json,
     load_trades_full,
     load_predictor_metrics,
+    load_predictor_params,
+    load_predictions_json,
     check_key_exists,
+    get_recent_s3_errors,
 )
 from loaders.signal_loader import (
     get_available_signal_dates,
@@ -65,6 +68,8 @@ SIGNAL_BADGES = {
     "HOLD": "⚪",
 }
 
+VETO_COLOR = "#f5c6cb"
+
 
 def _status_badge(ok: bool | None) -> str:
     if ok is True:
@@ -76,6 +81,9 @@ def _status_badge(ok: bool | None) -> str:
 
 def _color_signal_row(row: pd.Series) -> list[str]:
     """Return background-color CSS for each cell in a row based on signal type."""
+    veto_val = str(row.get("Veto", ""))
+    if veto_val.startswith("VETOED"):
+        return [f"background-color: {VETO_COLOR}" for _ in row]
     sig = str(row.get("signal", "HOLD")).upper()
     color = SIGNAL_COLORS.get(sig, SIGNAL_COLORS["HOLD"])
     return [f"background-color: {color}" for _ in row]
@@ -95,6 +103,14 @@ def _fmt_dollar(val) -> str:
         return "—"
 
 
+def _is_weekend_gap(today_dt: date, last_date: date) -> bool:
+    """Return True if the gap between today and last_date is just a weekend."""
+    # If today is Monday and last_date is Friday, that's a normal weekend gap
+    if today_dt.weekday() == 0 and last_date.weekday() == 4:
+        return (today_dt - last_date).days <= 3
+    return False
+
+
 # ---------------------------------------------------------------------------
 # System Health checks
 # ---------------------------------------------------------------------------
@@ -103,50 +119,107 @@ def _fmt_dollar(val) -> str:
 def _check_research_lambda() -> tuple[bool | None, str]:
     """
     Check if today's signals.json was written (proxy for Research Lambda health).
+    48-hour escalation: yellow after 1 day, red after 2 days.
     """
-    today = date.today().isoformat()
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("America/Los_Angeles"))
+    today_dt = now.date()
     cfg = load_config()
-    key = cfg["paths"]["signals"].format(date=today)
     bucket = cfg["s3"]["research_bucket"]
-    exists = check_key_exists(bucket, key)
-    if exists:
+
+    # Check today
+    key_today = cfg["paths"]["signals"].format(date=today_dt.isoformat())
+    if check_key_exists(bucket, key_today):
         return True, "Signals written today"
+
+    # Before 7 AM PT, yesterday is acceptable
+    if now.hour < 7:
+        yesterday = today_dt - timedelta(days=1)
+        key_yday = cfg["paths"]["signals"].format(date=yesterday.isoformat())
+        if check_key_exists(bucket, key_yday):
+            return True, "Yesterday's signals (pre-market)"
+
     # Check yesterday
-    yesterday = pd.Timestamp.now() - pd.Timedelta(days=1)
-    key_yday = cfg["paths"]["signals"].format(date=yesterday.strftime("%Y-%m-%d"))
-    exists_yday = check_key_exists(bucket, key_yday)
-    if exists_yday:
+    yesterday = today_dt - timedelta(days=1)
+    key_yday = cfg["paths"]["signals"].format(date=yesterday.isoformat())
+    if check_key_exists(bucket, key_yday):
         return None, "Yesterday's signals present (today missing)"
+
+    # Check two days ago
+    two_days = today_dt - timedelta(days=2)
+    key_2d = cfg["paths"]["signals"].format(date=two_days.isoformat())
+    if check_key_exists(bucket, key_2d):
+        # Check weekend: Friday signals on Sunday is fine
+        if _is_weekend_gap(today_dt, two_days):
+            return None, f"Last signals: {two_days.isoformat()} (weekend)"
+        return False, "No signals for 48+ hours"
+
     return False, "No recent signals found"
 
 
-def _check_ib_gateway(eod_df: pd.DataFrame | None) -> tuple[bool | None, str]:
+def _check_ib_gateway(eod_df: pd.DataFrame | None, trades_df: pd.DataFrame | None = None,
+                       signals_data: dict | None = None) -> tuple[bool | None, str]:
     """
     Check IB Gateway health via presence of today's eod_pnl entry.
+    48-hour escalation with weekend awareness. Detects executor failures.
     """
     if eod_df is None or eod_df.empty:
         return False, "No eod_pnl data"
-    if "date" in eod_df.columns:
-        eod_df["date"] = pd.to_datetime(eod_df["date"])
-        today_rows = eod_df[eod_df["date"].dt.date == date.today()]
-        if not today_rows.empty:
-            return True, "Today's P&L recorded"
-        yesterday = (pd.Timestamp.now() - pd.Timedelta(days=1)).date()
-        yday_rows = eod_df[eod_df["date"].dt.date == yesterday]
-        if not yday_rows.empty:
-            return None, "Last updated yesterday"
+    if "date" not in eod_df.columns:
+        return False, "No date column in eod_pnl"
+
+    eod_df = eod_df.copy()
+    eod_df["date"] = pd.to_datetime(eod_df["date"])
+    today_dt = date.today()
+
+    today_rows = eod_df[eod_df["date"].dt.date == today_dt]
+    if not today_rows.empty:
+        # Check for executor failure: P&L recorded but no trades when signals have ENTER candidates
+        if trades_df is not None and not trades_df.empty and signals_data:
+            from loaders.signal_loader import signals_to_df
+            sig_df = signals_to_df(signals_data)
+            has_enter = not sig_df.empty and "signal" in sig_df.columns and (sig_df["signal"] == "ENTER").any()
+            if has_enter and "date" in trades_df.columns:
+                trades_today = trades_df[pd.to_datetime(trades_df["date"]).dt.date == today_dt]
+                if trades_today.empty:
+                    return None, "P&L recorded but no trades executed"
+        return True, "Today's P&L recorded"
+
+    # Check yesterday
+    yesterday = today_dt - timedelta(days=1)
+    yday_rows = eod_df[eod_df["date"].dt.date == yesterday]
+    if not yday_rows.empty:
+        return None, "Last updated yesterday"
+
+    # Check two days ago with weekend awareness
+    two_days = today_dt - timedelta(days=2)
+    twoday_rows = eod_df[eod_df["date"].dt.date == two_days]
+    if not twoday_rows.empty:
+        if _is_weekend_gap(today_dt, two_days):
+            return None, f"Last P&L: {two_days.isoformat()} (weekend)"
+        return False, "No P&L for 48+ hours"
+
     return False, "No recent P&L data"
 
 
 def _check_backtester() -> tuple[bool | None, str]:
     """
     Check if a backtest was run recently (within 7 days).
+    Also checks metrics.json for failure status.
     """
-    from loaders.s3_loader import list_backtest_dates
+    from loaders.s3_loader import list_backtest_dates, load_backtest_file
     dates = list_backtest_dates()
     if not dates:
         return None, "No backtests found"
     latest = dates[0]
+
+    # Check for failure status in metrics.json
+    metrics = load_backtest_file(latest, "metrics.json")
+    if isinstance(metrics, dict):
+        status = metrics.get("status", "")
+        if status in ("failed", "error"):
+            return False, f"Last run FAILED: {latest}"
+
     try:
         delta = (pd.Timestamp.now() - pd.Timestamp(latest)).days
         if delta <= 7:
@@ -162,7 +235,6 @@ def _check_predictor(metrics: dict) -> tuple[bool | None, str]:
     """Check predictor health via metrics/latest.json hit rate and freshness."""
     if not metrics:
         return False, "No metrics found"
-    from datetime import datetime
     from zoneinfo import ZoneInfo
     today = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
     last_run = metrics.get("last_run_utc", "")[:10]
@@ -209,6 +281,7 @@ def main():
 
     with st.spinner("Loading data..."):
         eod_df = load_eod_pnl()
+        trades_df = load_trades_full()
         signals_data = load_signals_json(today)
         macro_df = get_macro_snapshots()
         predictor_metrics = load_predictor_metrics()
@@ -219,7 +292,7 @@ def main():
     st.header("System Health")
 
     lambda_ok, lambda_msg = _check_research_lambda()
-    ib_ok, ib_msg = _check_ib_gateway(eod_df)
+    ib_ok, ib_msg = _check_ib_gateway(eod_df, trades_df, signals_data)
     bt_ok, bt_msg = _check_backtester()
     sq_ok, sq_msg = _check_signal_quality(signals_data)
     pred_ok, pred_msg = _check_predictor(predictor_metrics)
@@ -245,6 +318,19 @@ def main():
     with col5:
         badge = _status_badge(pred_ok)
         st.metric(label=f"{badge} Predictor", value=pred_msg)
+
+    # S3 error display (Gap #13)
+    s3_errors = get_recent_s3_errors()
+    if s3_errors:
+        recent_cutoff = (datetime.utcnow() - timedelta(minutes=15)).isoformat()
+        recent_errors = [e for e in s3_errors if e["timestamp"] >= recent_cutoff]
+
+        if recent_errors:
+            st.error(f"{len(recent_errors)} S3 errors in the last 15 minutes")
+
+        with st.expander(f"S3 Errors ({len(s3_errors)} total)", expanded=bool(recent_errors)):
+            error_df = pd.DataFrame(s3_errors[-20:])  # Show last 20
+            st.dataframe(error_df, use_container_width=True, hide_index=True)
 
     st.divider()
 
@@ -319,7 +405,7 @@ def main():
     st.divider()
 
     # -----------------------------------------------------------------------
-    # Section 3: Today's Signals
+    # Section 3: Today's Signals (with veto status — Gap #2)
     # -----------------------------------------------------------------------
     st.header("Today's Signals")
 
@@ -337,12 +423,34 @@ def main():
             if "stale" in buy_df.columns:
                 buy_df["stale"] = buy_df["stale"].apply(lambda x: "⚠" if x else "")
 
+            # Add veto status
+            predictions = load_predictions_json()
+            predictor_params = load_predictor_params()
+            veto_threshold = predictor_params.get("veto_confidence", 0.65)
+
+            if predictions and "ticker" in buy_df.columns:
+                def _veto_status(ticker):
+                    pred = predictions.get(ticker, {})
+                    if not pred:
+                        return ""
+                    direction = pred.get("predicted_direction", "")
+                    conf = pred.get("prediction_confidence") or 0.0
+                    if direction == "DOWN" and conf >= veto_threshold:
+                        return f"VETOED ({conf:.0%})"
+                    return ""
+
+                buy_df["Veto"] = buy_df["ticker"].apply(_veto_status)
+
+                vetoed_count = buy_df["Veto"].str.startswith("VETOED").sum()
+                if vetoed_count > 0:
+                    st.warning(f"{vetoed_count} of {len(buy_df)} buy candidates vetoed by predictor")
+
             # Select display columns
             display_cols = [
                 c for c in [
                     "ticker", "sector", "signal", "score", "conviction",
                     "rating", "technical", "news", "research",
-                    "price_target_upside", "thesis_summary", "stale"
+                    "Veto", "price_target_upside", "thesis_summary", "stale"
                 ]
                 if c in buy_df.columns
             ]
