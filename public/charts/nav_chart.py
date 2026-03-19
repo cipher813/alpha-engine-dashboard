@@ -121,7 +121,7 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
             gridcolor="rgba(255,255,255,0.06)",
             zeroline=True, zerolinecolor="rgba(255,255,255,0.15)",
             tickfont=dict(color="#aaa"),
-            titlefont=dict(color="#aaa"),
+            title_font=dict(color="#aaa"),
         ),
         hovermode="x unified",
         legend=dict(
@@ -167,7 +167,7 @@ def make_alpha_histogram(eod_df: pd.DataFrame) -> go.Figure:
             title="Daily Alpha (%)", ticksuffix="%",
             showgrid=True, gridcolor="rgba(255,255,255,0.06)",
             zeroline=True, zerolinecolor="rgba(255,255,255,0.15)",
-            tickfont=dict(color="#aaa"), titlefont=dict(color="#aaa"),
+            tickfont=dict(color="#aaa"), title_font=dict(color="#aaa"),
         ),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
