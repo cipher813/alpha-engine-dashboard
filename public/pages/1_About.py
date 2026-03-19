@@ -1,6 +1,6 @@
 """
 Nous Ergon — About Page
-Model overview, pipeline explanation, and blog links.
+Model overview, pipeline explanation, and links.
 """
 
 import streamlit as st
@@ -55,6 +55,27 @@ st.markdown(
 st.divider()
 
 # ---------------------------------------------------------------------------
+# What is Nous Ergon?
+# ---------------------------------------------------------------------------
+
+st.markdown("### What is Nous Ergon?")
+
+st.markdown(
+    """
+    Nous Ergon is a fully autonomous AI trading system. It researches stocks,
+    predicts which ones will outperform the market, executes trades, and
+    learns from its own results — all without human intervention.
+
+    The system measures itself against one metric: **alpha**, the difference
+    between its portfolio return and the S&P 500. A day where the portfolio
+    drops 1% but the S&P drops 2% is a +1% alpha day. Everything in the
+    system exists to sustain positive alpha over time.
+    """
+)
+
+st.markdown("---")
+
+# ---------------------------------------------------------------------------
 # How It Works
 # ---------------------------------------------------------------------------
 
@@ -62,80 +83,86 @@ st.markdown("### How It Works")
 
 st.markdown(
     """
-    Nous Ergon is an autonomous AI trading system that identifies stocks
-    expected to outperform the S&P 500 over a 5-day rolling horizon.
-    The system runs fully autonomously — no manual stock picks, no human
-    intervention in trade execution.
+    The system is built around a simple idea: **use the right tool for each
+    job**. LLMs are good at reading and reasoning over unstructured text.
+    Machine learning models are good at finding patterns in numerical data.
+    Deterministic rules are good at enforcing hard constraints. Nous Ergon
+    combines all three.
     """
 )
-
-st.markdown("---")
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown(
         """
-        #### 1. Research
-        LLM agents (Claude) analyze ~900 stocks weekly, scoring each on
-        news sentiment, analyst research, and sector macro conditions.
-        ~20 stocks are tracked with rolling investment theses that update
-        as new information arrives.
+        #### Research
+        AI agents scan the S&P 500 and S&P 400 each week, filtering the full
+        universe down to a manageable set of candidates. The top candidates
+        get deep analysis — news sentiment, analyst research, and macro
+        conditions — producing a composite attractiveness score for each stock.
 
-        #### 2. Prediction
-        A gradient-boosted model (LightGBM) predicts 5-day sector-relative
-        returns using 36 technical features computed from daily price data.
-        Two models run in parallel — one calibrated for return magnitude,
-        one optimized for relative ranking — and the best performer is
-        promoted each week.
+        #### Prediction
+        A machine learning model predicts short-term sector-relative returns
+        using technical features computed from daily price data. It retrains
+        weekly on years of history but refreshes predictions every morning
+        with the latest market data. Research asks "is this a good stock?"
+        while the predictor asks "is now the right time?"
         """
     )
 
 with col2:
     st.markdown(
         """
-        #### 3. Execution
-        Positions are sized based on conviction, sector rating, and price
-        target upside. Risk rules enforce position limits, sector
-        concentration caps, and graduated drawdown response. A veto gate
-        blocks entry when the ML model predicts underperformance with
-        high confidence.
+        #### Execution
+        Signals and predictions flow into a rule-based executor that sizes
+        positions, manages risk, and places trades on Interactive Brokers.
+        Risk guardrails enforce position limits, sector concentration caps,
+        and graduated drawdown response. A veto gate blocks entry when the
+        ML model predicts underperformance with high confidence.
 
-        #### 4. Learning
-        A weekly backtester measures signal quality, optimizes scoring
-        weights, and auto-tunes risk parameters. Configs are written
-        back to S3 and picked up by downstream modules on their next run.
-        The system improves autonomously without manual intervention.
+        #### Learning
+        A weekly backtester closes the feedback loop. It measures how
+        accurate past signals were, identifies which scoring factors are
+        most predictive, and auto-tunes parameters across the entire system.
+        Updated configs are written back and picked up by all downstream
+        modules — the system improves itself without manual intervention.
         """
     )
 
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# The Alpha Metric
+# Architecture
 # ---------------------------------------------------------------------------
 
-st.markdown("### The Alpha Metric")
+st.markdown("### Architecture")
+
+st.markdown(
+    """
+    The five modules communicate exclusively through S3 — there are no shared
+    databases or direct API calls between them. Each module reads its inputs,
+    does its work, and writes its outputs. This means any module can be
+    replaced independently as long as it respects the shared data contracts.
+
+    The system runs on two cadences: a **daily trading loop** (predictions
+    and execution every market morning, reconciliation at close) and a
+    **weekly optimization cycle** (research, model retraining, and
+    backtesting on Mondays).
+    """
+)
 
 st.markdown(
     """
     <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
                 border-radius: 8px; padding: 20px; text-align: center; margin: 16px 0;">
-        <p style="font-size: 20px; font-family: monospace; color: #1a73e8; margin: 0;">
-            &alpha; = Portfolio Return &minus; S&amp;P 500 Return
+        <p style="font-size: 15px; font-family: monospace; color: #aaa; margin: 0;">
+            Research &rarr; Predictor &rarr; Executor &rarr; Backtester &rarr;
+            <span style="color: #1a73e8;">(feedback loop)</span>
         </p>
     </div>
     """,
     unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    Every component in the system is evaluated against its contribution to
-    sustained positive alpha. The goal is market-relative outperformance,
-    not absolute returns. A day where the portfolio drops 1% but the S&P 500
-    drops 2% is a +1% alpha day.
-    """
 )
 
 st.markdown("---")
@@ -152,9 +179,9 @@ with col_a:
     st.markdown(
         """
         **AI / ML**
-        - Claude (Haiku + Sonnet) for research
-        - LightGBM for predictions
-        - LangGraph for agent orchestration
+        - Claude (Haiku + Sonnet)
+        - LightGBM
+        - LangGraph
         """
     )
 
@@ -162,38 +189,35 @@ with col_b:
     st.markdown(
         """
         **Infrastructure**
-        - AWS Lambda + EC2
-        - S3 for data pipeline
-        - Interactive Brokers (paper)
+        - AWS (Lambda, EC2, S3)
+        - Interactive Brokers
+        - Cloudflare
         """
     )
 
 with col_c:
     st.markdown(
         """
-        **Data**
-        - 36 technical features
-        - Sector-neutral labeling
-        - Walk-forward validation
+        **Stack**
+        - Python
+        - Streamlit
+        - SQLite
         """
     )
 
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# Blog
+# Learn More
 # ---------------------------------------------------------------------------
 
-st.markdown("### Blog")
+st.markdown("### Learn More")
 
 st.markdown(
     """
-    *Coming soon — writing in progress.*
-
-    - Building an AI Trading System from Scratch
-    - How LLM Agents Research Stocks
-    - The Case for Sector-Relative Predictions
-    - What I Learned from My First Month of Autonomous Trading
+    For a deeper look at the design decisions, architecture, and lessons
+    learned, check out the
+    [blog series on Hashnode](https://nous-ergon.hashnode.dev).
     """
 )
 
