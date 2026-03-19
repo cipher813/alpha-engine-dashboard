@@ -14,7 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_signals_json
+from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_signals_json, load_mode_history
 from loaders.db_loader import get_predictor_outcomes
 from loaders.signal_loader import get_available_signal_dates
 from charts.predictor_chart import make_model_drift_chart
@@ -78,6 +78,74 @@ else:
     else:
         drift_fig = make_model_drift_chart(resolved)
         st.plotly_chart(drift_fig, use_container_width=True)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Model Mode History (O1)
+# ---------------------------------------------------------------------------
+
+st.subheader("Model Mode History")
+
+mode_history = load_mode_history()
+
+if len(mode_history) < 2:
+    st.info(
+        f"Mode history requires at least 2 weekly training runs "
+        f"(currently {len(mode_history)}). Check back after more training cycles."
+    )
+else:
+    mh_df = pd.DataFrame(mode_history)
+    mh_df["date"] = pd.to_datetime(mh_df["date"])
+
+    mode_fig = go.Figure()
+    mode_fig.add_trace(go.Scatter(
+        x=mh_df["date"], y=mh_df["mse_ic"],
+        mode="lines+markers", name="MSE IC",
+        line=dict(color="#1f77b4", width=2),
+        marker=dict(size=8),
+    ))
+    if "rank_ic" in mh_df.columns and mh_df["rank_ic"].notna().any():
+        mode_fig.add_trace(go.Scatter(
+            x=mh_df["date"], y=mh_df["rank_ic"],
+            mode="lines+markers", name="Lambdarank IC",
+            line=dict(color="#ff7f0e", width=2),
+            marker=dict(size=8),
+        ))
+    if "ensemble_ic" in mh_df.columns and mh_df["ensemble_ic"].notna().any():
+        mode_fig.add_trace(go.Scatter(
+            x=mh_df["date"], y=mh_df["ensemble_ic"],
+            mode="lines+markers", name="Ensemble IC",
+            line=dict(color="#2ca02c", width=2),
+            marker=dict(size=8),
+        ))
+
+    # Highlight selected mode each week with a star marker
+    for _, row in mh_df.iterrows():
+        ic_val = row.get(f"{row['best_mode']}_ic") if row["best_mode"] != "ensemble" else row.get("ensemble_ic")
+        if ic_val is not None and pd.notna(ic_val):
+            mode_fig.add_trace(go.Scatter(
+                x=[row["date"]], y=[ic_val],
+                mode="markers", showlegend=False,
+                marker=dict(symbol="star", size=14, color="gold", line=dict(width=1, color="black")),
+                hovertemplate=f"<b>Selected: {row['best_mode']}</b><br>IC: {ic_val:.4f}<extra></extra>",
+            ))
+
+    mode_fig.update_layout(
+        title="Weekly IC by Model Type (star = selected mode)",
+        xaxis_title="Training Date", yaxis_title="Test IC",
+        plot_bgcolor="white", paper_bgcolor="white",
+        height=350, margin=dict(t=40, b=30, l=60, r=20),
+    )
+    st.plotly_chart(mode_fig, use_container_width=True)
+
+    # Summary metrics
+    from collections import Counter
+    wins = Counter(mh_df["best_mode"])
+    cols = st.columns(len(wins))
+    for i, (mode, count) in enumerate(wins.most_common()):
+        pct = count / len(mh_df) * 100
+        cols[i].metric(f"{mode.title()} Wins", f"{count} ({pct:.0f}%)")
 
 st.divider()
 

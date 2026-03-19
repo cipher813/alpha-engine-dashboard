@@ -352,6 +352,22 @@ def load_predictor_metrics() -> dict:
         return {}
 
 
+def load_mode_history() -> list[dict]:
+    """Load predictor mode selection history from S3. Returns [] on failure."""
+    key = "predictor/metrics/mode_history.json"
+    try:
+        client = get_s3_client()
+        response = client.get_object(Bucket=_research_bucket(), Key=key)
+        data = json.loads(response["Body"].read())
+        return data if isinstance(data, list) else []
+    except client.exceptions.NoSuchKey:
+        return []
+    except Exception as e:
+        logger.error("Failed to load mode history: %s", e)
+        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
+        return []
+
+
 def load_predictor_params() -> dict:
     """Load predictor_params.json from S3 config. Returns {} on any failure."""
     key = "config/predictor_params.json"

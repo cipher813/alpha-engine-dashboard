@@ -1,1 +1,3 @@
-*design*.md 
+*design*.md
+public/infrastructure/certs/
+public/infrastructure/secrets.env

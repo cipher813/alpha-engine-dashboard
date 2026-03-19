@@ -1,0 +1,8 @@
+s3:
+  trades_bucket: alpha-engine-executor
+
+paths:
+  eod_pnl: trades/eod_pnl.csv
+
+cache_ttl:
+  trades: 900  # 15 min
