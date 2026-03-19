@@ -238,9 +238,11 @@ def _check_predictor(metrics: dict) -> tuple[bool | None, str]:
     from zoneinfo import ZoneInfo
     today = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
     last_run = metrics.get("last_run_utc", "")[:10]
-    hit_rate = metrics.get("hit_rate_30d_rolling", 0.0)
+    hit_rate = metrics.get("hit_rate_30d_rolling")
     if last_run != today:
         return False, f"Not run today (last: {last_run or 'unknown'})"
+    if hit_rate is None:
+        return None, "Hit rate not yet available (need 30+ days)"
     if hit_rate >= 0.52:
         return True, f"Hit rate {hit_rate:.1%}"
     elif hit_rate >= 0.48:

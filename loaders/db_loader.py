@@ -77,6 +77,13 @@ def query_research_db(sql: str, params=None) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_score_col(df: pd.DataFrame) -> pd.DataFrame:
+    """Alias 'score' → 'composite_score' for backward compat with dashboard pages."""
+    if not df.empty and "score" in df.columns and "composite_score" not in df.columns:
+        df = df.rename(columns={"score": "composite_score"})
+    return df
+
+
 def get_score_performance() -> pd.DataFrame:
     """
     Return all rows from score_performance ordered by score_date ascending.
@@ -84,7 +91,7 @@ def get_score_performance() -> pd.DataFrame:
     beat_spy_30d, return_10d, return_30d, spy_10d_return, spy_30d_return, ...
     """
     sql = "SELECT * FROM score_performance ORDER BY score_date"
-    return query_research_db(sql)
+    return _normalize_score_col(query_research_db(sql))
 
 
 def get_investment_thesis(symbol: str | None = None) -> pd.DataFrame:
@@ -123,13 +130,13 @@ def get_score_history(symbol: str) -> pd.DataFrame:
     Return score history rows for a single symbol from score_performance.
     """
     sql = """
-        SELECT score_date, composite_score, beat_spy_10d, beat_spy_30d,
+        SELECT score_date, score, beat_spy_10d, beat_spy_30d,
                return_10d, return_30d, spy_10d_return, spy_30d_return
         FROM score_performance
         WHERE symbol = ?
         ORDER BY score_date
     """
-    return query_research_db(sql, params=(symbol,))
+    return _normalize_score_col(query_research_db(sql, params=(symbol,)))
 
 
 def get_top_recent_symbols(n: int = 10) -> pd.DataFrame:
@@ -144,10 +151,10 @@ def get_top_recent_symbols(n: int = 10) -> pd.DataFrame:
             FROM score_performance
             GROUP BY symbol
         ) latest ON sp.symbol = latest.symbol AND sp.score_date = latest.max_date
-        ORDER BY sp.composite_score DESC
+        ORDER BY sp.score DESC
         LIMIT ?
     """
-    return query_research_db(sql, params=(n,))
+    return _normalize_score_col(query_research_db(sql, params=(n,)))
 
 
 def get_predictor_outcomes(symbol: str | None = None) -> pd.DataFrame:
