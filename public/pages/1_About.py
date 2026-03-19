@@ -45,6 +45,7 @@ st.markdown(
         <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
             <a href="/" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">Home</a>
             <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
+            <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
             <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
         </div>
     </div>
