@@ -97,16 +97,11 @@ if eod is None or eod.empty:
 eod["date"] = pd.to_datetime(eod["date"])
 eod = eod.sort_values("date").reset_index(drop=True)
 
-# Detect scale (percent vs decimal)
-def _to_decimal(series: pd.Series) -> pd.Series:
-    s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-    if s.abs().mean() > 1.0:
-        s = s / 100.0
-    return s
-
-eod["port_ret"] = _to_decimal(eod["daily_return_pct"])
-eod["spy_ret"] = _to_decimal(eod["spy_return_pct"])
-eod["daily_alpha"] = eod["port_ret"] - eod["spy_ret"]
+# Returns in eod_pnl.csv are stored as percentages (e.g., 0.876 = 0.876%)
+# Convert to decimals for cumulative return math
+eod["port_ret"] = pd.to_numeric(eod["daily_return_pct"], errors="coerce").fillna(0.0) / 100.0
+eod["spy_ret"] = pd.to_numeric(eod["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
+eod["daily_alpha"] = pd.to_numeric(eod["daily_alpha_pct"], errors="coerce").fillna(0.0) / 100.0
 
 inception_date = eod["date"].iloc[0]
 latest = eod.iloc[-1]
@@ -175,33 +170,38 @@ st.plotly_chart(fig_alpha, use_container_width=True)
 st.markdown("### Current Holdings")
 
 try:
-    snapshot_raw = latest.get("positions_snapshot", "[]")
+    snapshot_raw = latest.get("positions_snapshot", "{}")
     if pd.isna(snapshot_raw):
-        snapshot_raw = "[]"
+        snapshot_raw = "{}"
     positions = json.loads(snapshot_raw)
-    if positions:
-        pos_df = pd.DataFrame(positions)
-        # Select available columns
-        display_cols = []
-        col_map = {}
-        if "ticker" in pos_df.columns:
-            display_cols.append("ticker")
-            col_map["ticker"] = "Ticker"
-        if "sector" in pos_df.columns:
-            display_cols.append("sector")
-            col_map["sector"] = "Sector"
-        if "market_value" in pos_df.columns:
-            display_cols.append("market_value")
-            col_map["market_value"] = "Value"
 
-        if display_cols:
-            pos_display = pos_df[display_cols].copy()
-            pos_display.rename(columns=col_map, inplace=True)
-            if "Value" in pos_display.columns:
-                pos_display["Value"] = pos_display["Value"].apply(
+    # positions_snapshot can be:
+    #   - dict: {"AAPL": {"shares": 100, "market_value": 15000, ...}, ...}
+    #   - list: [{"ticker": "AAPL", "market_value": 15000, ...}, ...]
+    #   - empty dict/list
+    if isinstance(positions, dict) and positions:
+        rows = []
+        for ticker, info in positions.items():
+            rows.append({
+                "Ticker": ticker,
+                "Shares": info.get("shares", "—"),
+                "Value": f"${info.get('market_value', 0):,.0f}",
+                "Sector": info.get("sector", "—") or "—",
+            })
+        pos_df = pd.DataFrame(rows)
+        st.dataframe(pos_df, use_container_width=True, hide_index=True)
+    elif isinstance(positions, list) and positions:
+        pos_df = pd.DataFrame(positions)
+        if "ticker" in pos_df.columns:
+            display = pos_df[["ticker"]].copy()
+            display.columns = ["Ticker"]
+            if "market_value" in pos_df.columns:
+                display["Value"] = pos_df["market_value"].apply(
                     lambda v: f"${v:,.0f}" if isinstance(v, (int, float)) else v
                 )
-            st.dataframe(pos_display, use_container_width=True, hide_index=True)
+            if "sector" in pos_df.columns:
+                display["Sector"] = pos_df["sector"]
+            st.dataframe(display, use_container_width=True, hide_index=True)
         else:
             st.info("Position data format not recognized.")
     else:

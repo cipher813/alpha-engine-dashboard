@@ -23,14 +23,14 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
         df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
 
-    def _to_decimal(series: pd.Series) -> pd.Series:
-        s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-        if s.abs().mean() > 1.0:
-            s = s / 100.0
-        return s
-
-    port_ret = _to_decimal(df["daily_return_pct"])
-    spy_ret = _to_decimal(df["spy_return_pct"])
+    # Returns are already converted to decimals by app.py (port_ret, spy_ret)
+    # If raw columns are present, convert; otherwise use pre-computed
+    if "port_ret" in df.columns:
+        port_ret = df["port_ret"]
+        spy_ret = df["spy_ret"]
+    else:
+        port_ret = pd.to_numeric(df["daily_return_pct"], errors="coerce").fillna(0.0) / 100.0
+        spy_ret = pd.to_numeric(df["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
 
     port_cum = ((1 + port_ret).cumprod() - 1) * 100
     spy_cum = ((1 + spy_ret).cumprod() - 1) * 100
@@ -143,9 +143,8 @@ def make_alpha_histogram(eod_df: pd.DataFrame) -> go.Figure:
         return fig
 
     df = eod_df.copy()
+    # daily_alpha is in decimal form (0.01 = 1%) — convert to percent for display
     alpha = pd.to_numeric(df["daily_alpha"], errors="coerce").dropna()
-    if alpha.abs().mean() > 1.0:
-        alpha = alpha / 100.0
     alpha_pct = alpha * 100
 
     colors = ["#2e7d32" if v >= 0 else "#c62828" for v in alpha_pct]
