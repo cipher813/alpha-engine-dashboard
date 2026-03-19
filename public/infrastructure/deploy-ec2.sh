@@ -61,6 +61,7 @@ ok "Dependencies installed"
 info "Step 3: Installing Origin CA certificate..."
 
 if [[ -f "${CERT_STAGING}/cloudflare-origin.pem" && -f "${CERT_STAGING}/cloudflare-origin.key" ]]; then
+  sudo mkdir -p /etc/ssl/certs /etc/ssl/private
   sudo cp "${CERT_STAGING}/cloudflare-origin.pem" /etc/ssl/certs/cloudflare-origin.pem
   sudo cp "${CERT_STAGING}/cloudflare-origin.key" /etc/ssl/private/cloudflare-origin.key
   sudo chmod 644 /etc/ssl/certs/cloudflare-origin.pem
