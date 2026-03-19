@@ -73,16 +73,24 @@ st.markdown(
 
 st.markdown(
     """
-    <div style="text-align: center; padding: 20px 0 10px 0;">
+    <div style="text-align: center; padding: 20px 0 0 0;">
         <h1 style="margin-bottom: 0; font-size: 2.5em; letter-spacing: 2px;">
             NOUS ERGON
         </h1>
         <p style="color: #888; font-size: 14px; margin-top: 4px; font-style: italic;">
-            &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu; &mdash; mind at work
+            &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu;
         </p>
-        <p style="color: #aaa; font-size: 13px; margin-top: 8px;">
-            AI-driven autonomous trading system generating alpha over the S&amp;P 500
+        <p style="color: #aaa; font-size: 14px; margin-top: 6px;">
+            Intelligence at work
         </p>
+        <p style="color: #999; font-size: 13px; margin-top: 8px;">
+            AI-driven autonomous trading system
+        </p>
+        <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
+            <a href="/About" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">About</a>
+            <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
+            <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -243,10 +251,6 @@ st.markdown(
     <div style="text-align: center; padding: 8px 0 20px 0;">
         <p style="color: #666; font-size: 12px;">
             Paper trading account &mdash; not financial advice
-            &nbsp;&bull;&nbsp;
-            <a href="/About" target="_self">About the model</a>
-            &nbsp;&bull;&nbsp;
-            <a href="https://dashboard.nousergon.ai" target="_blank">Full dashboard &rarr;</a>
         </p>
     </div>
     """,
