@@ -48,7 +48,18 @@ def _trades_bucket() -> str:
 
 
 def get_s3_client():
-    return boto3.client("s3")
+    # On Streamlit Cloud, credentials come from st.secrets["aws"]
+    # On EC2, boto3 uses the IAM role automatically
+    try:
+        aws_secrets = st.secrets["aws"]
+        return boto3.client(
+            "s3",
+            aws_access_key_id=aws_secrets["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=aws_secrets["AWS_SECRET_ACCESS_KEY"],
+            region_name=aws_secrets.get("AWS_DEFAULT_REGION", "us-east-1"),
+        )
+    except (KeyError, FileNotFoundError):
+        return boto3.client("s3")
 
 
 @st.cache_data(ttl=_ttl("trades"))
