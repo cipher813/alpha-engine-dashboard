@@ -6,3 +6,11 @@ paths:
 
 cache_ttl:
   trades: 900  # 15 min
+
+# Starting capital for cash calculation (NAV - sum(positions) = cash)
+starting_capital: 1000000
+
+# Override inception date if the paper trading account is reset.
+# Set to the first trading day after reset. Leave blank to auto-detect
+# from earliest eod_pnl row.
+# inception_date: "2026-03-09"

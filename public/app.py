@@ -7,12 +7,19 @@ and current holdings. All data is read-only from S3 (server-side).
 """
 
 import json
+import os
 
 import pandas as pd
 import streamlit as st
+import yaml
 
 from loaders.s3_loader import load_eod_pnl
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
+
+# Load config
+_config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+with open(_config_path) as _f:
+    _cfg = yaml.safe_load(_f)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -103,7 +110,13 @@ eod["port_ret"] = pd.to_numeric(eod["daily_return_pct"], errors="coerce").fillna
 eod["spy_ret"] = pd.to_numeric(eod["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
 eod["daily_alpha"] = pd.to_numeric(eod["daily_alpha_pct"], errors="coerce").fillna(0.0) / 100.0
 
-inception_date = eod["date"].iloc[0]
+# Inception date: configurable override for account resets, else auto-detect
+_inception_override = _cfg.get("inception_date")
+if _inception_override:
+    inception_date = pd.Timestamp(_inception_override)
+    eod = eod[eod["date"] >= inception_date].reset_index(drop=True)
+else:
+    inception_date = eod["date"].iloc[0]
 latest = eod.iloc[-1]
 nav = latest["portfolio_nav"]
 
@@ -179,31 +192,41 @@ try:
     #   - dict: {"AAPL": {"shares": 100, "market_value": 15000, ...}, ...}
     #   - list: [{"ticker": "AAPL", "market_value": 15000, ...}, ...]
     #   - empty dict/list
+    # Build rows from dict or list format
+    rows = []
+    total_invested = 0.0
     if isinstance(positions, dict) and positions:
-        rows = []
         for ticker, info in positions.items():
+            mv = info.get("market_value", 0) or 0
+            total_invested += mv
             rows.append({
                 "Ticker": ticker,
                 "Shares": info.get("shares", "—"),
-                "Value": f"${info.get('market_value', 0):,.0f}",
+                "Value": f"${mv:,.0f}",
                 "Sector": info.get("sector", "—") or "—",
             })
+    elif isinstance(positions, list) and positions:
+        for p in positions:
+            mv = p.get("market_value", 0) or 0
+            total_invested += mv
+            rows.append({
+                "Ticker": p.get("ticker", "?"),
+                "Shares": p.get("shares", "—"),
+                "Value": f"${mv:,.0f}",
+                "Sector": p.get("sector", "—") or "—",
+            })
+
+    if rows:
+        # Add cash row
+        cash = nav - total_invested
+        rows.append({
+            "Ticker": "💵 CASH",
+            "Shares": "—",
+            "Value": f"${cash:,.0f}",
+            "Sector": "—",
+        })
         pos_df = pd.DataFrame(rows)
         st.dataframe(pos_df, use_container_width=True, hide_index=True)
-    elif isinstance(positions, list) and positions:
-        pos_df = pd.DataFrame(positions)
-        if "ticker" in pos_df.columns:
-            display = pos_df[["ticker"]].copy()
-            display.columns = ["Ticker"]
-            if "market_value" in pos_df.columns:
-                display["Value"] = pos_df["market_value"].apply(
-                    lambda v: f"${v:,.0f}" if isinstance(v, (int, float)) else v
-                )
-            if "sector" in pos_df.columns:
-                display["Sector"] = pos_df["sector"]
-            st.dataframe(display, use_container_width=True, hide_index=True)
-        else:
-            st.info("Position data format not recognized.")
     else:
         st.info("No open positions.")
 except Exception:
