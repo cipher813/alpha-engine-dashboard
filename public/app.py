@@ -110,7 +110,7 @@ nav = latest["portfolio_nav"]
 # Cumulative returns
 eod["port_cum"] = (1 + eod["port_ret"]).cumprod() - 1
 eod["spy_cum"] = (1 + eod["spy_ret"]).cumprod() - 1
-cumulative_alpha = (eod["port_cum"].iloc[-1] - eod["spy_cum"].iloc[-1]) * 100
+cumulative_alpha_bps = (eod["port_cum"].iloc[-1] - eod["spy_cum"].iloc[-1]) * 10_000
 
 # Alpha days
 up_days = (eod["daily_alpha"] > 0).sum()
@@ -128,8 +128,8 @@ col1.metric("Inception", inception_date.strftime("%b %d, %Y"))
 col2.metric("Portfolio NAV", f"${nav:,.0f}")
 col3.metric(
     "Cumulative Alpha",
-    f"{cumulative_alpha:+.2f}%",
-    delta=f"vs S&P 500",
+    f"{cumulative_alpha_bps:+.0f} bps",
+    delta="vs S&P 500",
     delta_color="off",
 )
 col4.metric("Alpha Days", f"{up_days} ▲  {down_days} ▼")
@@ -151,12 +151,12 @@ st.markdown("### Alpha Performance")
 col_a, col_b, col_c, col_d = st.columns(4)
 
 win_rate = up_days / total_days * 100 if total_days > 0 else 0
-avg_up = eod.loc[eod["daily_alpha"] > 0, "daily_alpha"].mean() * 100 if up_days > 0 else 0
-avg_down = eod.loc[eod["daily_alpha"] < 0, "daily_alpha"].mean() * 100 if down_days > 0 else 0
+avg_up_bps = eod.loc[eod["daily_alpha"] > 0, "daily_alpha"].mean() * 10_000 if up_days > 0 else 0
+avg_down_bps = eod.loc[eod["daily_alpha"] < 0, "daily_alpha"].mean() * 10_000 if down_days > 0 else 0
 
 col_a.metric("Win Rate", f"{win_rate:.1f}%")
-col_b.metric("Avg Up-Alpha Day", f"+{avg_up:.2f}%")
-col_c.metric("Avg Down-Alpha Day", f"{avg_down:.2f}%")
+col_b.metric("Avg Up-Alpha Day", f"+{avg_up_bps:.0f} bps")
+col_c.metric("Avg Down-Alpha Day", f"{avg_down_bps:.0f} bps")
 col_d.metric("Trading Days", f"{total_days}")
 
 # Daily alpha bar chart

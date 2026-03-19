@@ -143,18 +143,18 @@ def make_alpha_histogram(eod_df: pd.DataFrame) -> go.Figure:
         return fig
 
     df = eod_df.copy()
-    # daily_alpha is in decimal form (0.01 = 1%) — convert to percent for display
+    # daily_alpha is in decimal form (0.01 = 1% = 100 bps)
     alpha = pd.to_numeric(df["daily_alpha"], errors="coerce").dropna()
-    alpha_pct = alpha * 100
+    alpha_bps = alpha * 10_000
 
-    colors = ["#2e7d32" if v >= 0 else "#c62828" for v in alpha_pct]
+    colors = ["#2e7d32" if v >= 0 else "#c62828" for v in alpha_bps]
 
     fig = go.Figure(
         go.Bar(
-            x=list(range(len(alpha_pct))),
-            y=alpha_pct,
+            x=list(range(len(alpha_bps))),
+            y=alpha_bps,
             marker_color=colors,
-            hovertemplate="%{y:+.2f}%<extra></extra>",
+            hovertemplate="%{y:+.0f} bps<extra></extra>",
         )
     )
     fig.update_layout(
@@ -163,7 +163,7 @@ def make_alpha_histogram(eod_df: pd.DataFrame) -> go.Figure:
             tickfont=dict(color="#aaa"),
         ),
         yaxis=dict(
-            title="Daily Alpha (%)", ticksuffix="%",
+            title="Daily Alpha (bps)", ticksuffix=" bps",
             showgrid=True, gridcolor="rgba(255,255,255,0.06)",
             zeroline=True, zerolinecolor="rgba(255,255,255,0.15)",
             tickfont=dict(color="#aaa"), title_font=dict(color="#aaa"),
