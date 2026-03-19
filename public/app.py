@@ -78,7 +78,7 @@ st.markdown(
             Nous Ergon: Alpha Engine
         </h1>
         <p style="color: #888; font-size: 14px; margin-top: 4px; font-style: italic;">
-            &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu;
+            &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu; <span style="color:#666; font-size:12px;">(noose air-gone)</span>
         </p>
         <p style="color: #aaa; font-size: 14px; margin-top: 6px;">
             Intelligence at work
