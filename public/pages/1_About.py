@@ -31,7 +31,7 @@ st.markdown(
     """
     <div style="text-align: center; padding: 20px 0 0 0;">
         <h1 style="margin-bottom: 0; font-size: 2.5em; letter-spacing: 2px;">
-            NOUS ERGON: ALPHA ENGINE
+            Nous Ergon: Alpha Engine
         </h1>
         <p style="color: #888; font-size: 14px; margin-top: 4px; font-style: italic;">
             &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu;
