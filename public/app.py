@@ -71,31 +71,53 @@ st.markdown(
 # Header
 # ---------------------------------------------------------------------------
 
-st.markdown(
-    """
-    <div style="text-align: center; padding: 20px 0 0 0;">
-        <h1 style="margin-bottom: 0; font-size: 2.5em; letter-spacing: 2px;">
-            Nous Ergon: Alpha Engine
-        </h1>
-        <p style="color: #888; font-size: 14px; margin-top: 4px; font-style: italic;">
-            &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu; <span style="color:#666; font-size:12px;">(noose air-gone)</span>
-        </p>
-        <p style="color: #aaa; font-size: 14px; margin-top: 6px;">
-            Intelligence at work
-        </p>
-        <p style="color: #999; font-size: 13px; margin-top: 8px;">
-            AI-driven autonomous trading system
-        </p>
-        <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
-            <a href="/About" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">About</a>
-            <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
-            <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
-            <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
+_logo_path = os.path.join(os.path.dirname(__file__), "assets", "NousErgonLogo_260319.png")
+if os.path.exists(_logo_path):
+    import base64
+    with open(_logo_path, "rb") as _img_f:
+        _logo_b64 = base64.b64encode(_img_f.read()).decode()
+    st.markdown(
+        f"""
+        <div style="text-align: center; padding: 20px 0 0 0;">
+            <img src="data:image/png;base64,{_logo_b64}"
+                 alt="Nous Ergon: Alpha Engine"
+                 style="max-width: 600px; width: 90%; margin-bottom: 8px;" />
+            <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
+                <a href="/About" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">About</a>
+                <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
+                <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
+                <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
+            </div>
         </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        """
+        <div style="text-align: center; padding: 20px 0 0 0;">
+            <h1 style="margin-bottom: 0; font-size: 2.5em; letter-spacing: 2px;">
+                Nous Ergon: Alpha Engine
+            </h1>
+            <p style="color: #888; font-size: 14px; margin-top: 4px; font-style: italic;">
+                &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu; <span style="color:#666; font-size:12px;">(noose air-gone)</span>
+            </p>
+            <p style="color: #aaa; font-size: 14px; margin-top: 6px;">
+                Intelligence at work
+            </p>
+            <p style="color: #999; font-size: 13px; margin-top: 8px;">
+                AI-driven autonomous trading system
+            </p>
+            <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
+                <a href="/About" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">About</a>
+                <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
+                <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
+                <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.divider()
 
