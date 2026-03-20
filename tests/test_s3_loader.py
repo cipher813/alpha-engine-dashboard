@@ -1,0 +1,197 @@
+"""
+tests/test_s3_loader.py — Unit tests for loaders/s3_loader.py (private dashboard)
+and public/loaders/s3_loader.py (public dashboard).
+
+Tests S3 error tracking, utility functions, and the public get_s3_client()
+fallback logic. No actual S3 calls — all boto3 interactions are mocked.
+"""
+
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+from datetime import datetime
+
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Mock streamlit before importing any loaders
+mock_st = MagicMock()
+# Make @st.cache_data act as a passthrough decorator
+mock_st.cache_data = lambda **kwargs: (lambda f: f)
+mock_st.cache_resource = lambda **kwargs: (lambda f: f)
+sys.modules["streamlit"] = mock_st
+
+
+# ---------------------------------------------------------------------------
+# Tests: S3 error tracking (private dashboard s3_loader)
+# ---------------------------------------------------------------------------
+
+class TestS3ErrorTracking:
+    """Tests for the S3 error tracking utility in the private s3_loader."""
+
+    def test_record_and_retrieve_errors(self):
+        """Errors should be recorded and retrievable."""
+        # Import with config mock
+        with patch("builtins.open", MagicMock()):
+            with patch("yaml.safe_load", return_value={
+                "s3": {"research_bucket": "test", "trades_bucket": "test"},
+                "cache_ttl": {"signals": 900, "trades": 900, "research": 3600},
+                "paths": {},
+            }):
+                # Force reimport
+                if "loaders.s3_loader" in sys.modules:
+                    del sys.modules["loaders.s3_loader"]
+                from loaders import s3_loader
+
+        # Clear any existing errors
+        s3_loader._recent_s3_errors.clear()
+
+        s3_loader._record_s3_error("test-bucket", "test/key.json", "TestError", "something broke")
+        errors = s3_loader.get_recent_s3_errors()
+
+        assert len(errors) == 1
+        assert errors[0]["bucket"] == "test-bucket"
+        assert errors[0]["key"] == "test/key.json"
+        assert errors[0]["error_type"] == "TestError"
+        assert "something broke" in errors[0]["message"]
+        assert "timestamp" in errors[0]
+
+    def test_error_cap_at_max(self):
+        """Error log should be capped at _MAX_S3_ERRORS entries."""
+        with patch("builtins.open", MagicMock()):
+            with patch("yaml.safe_load", return_value={
+                "s3": {"research_bucket": "test", "trades_bucket": "test"},
+                "cache_ttl": {"signals": 900, "trades": 900, "research": 3600},
+                "paths": {},
+            }):
+                if "loaders.s3_loader" in sys.modules:
+                    del sys.modules["loaders.s3_loader"]
+                from loaders import s3_loader
+
+        s3_loader._recent_s3_errors.clear()
+        max_errors = s3_loader._MAX_S3_ERRORS
+
+        # Record more than max
+        for i in range(max_errors + 20):
+            s3_loader._record_s3_error("b", f"key_{i}", "Err", f"msg_{i}")
+
+        errors = s3_loader.get_recent_s3_errors()
+        assert len(errors) == max_errors
+
+        # Oldest should have been dropped — first entry should be key_20
+        assert errors[0]["key"] == "key_20"
+
+    def test_message_truncated_at_200_chars(self):
+        """Error messages should be truncated to 200 characters."""
+        with patch("builtins.open", MagicMock()):
+            with patch("yaml.safe_load", return_value={
+                "s3": {"research_bucket": "test", "trades_bucket": "test"},
+                "cache_ttl": {"signals": 900, "trades": 900, "research": 3600},
+                "paths": {},
+            }):
+                if "loaders.s3_loader" in sys.modules:
+                    del sys.modules["loaders.s3_loader"]
+                from loaders import s3_loader
+
+        s3_loader._recent_s3_errors.clear()
+        long_msg = "x" * 500
+        s3_loader._record_s3_error("b", "k", "Err", long_msg)
+
+        errors = s3_loader.get_recent_s3_errors()
+        assert len(errors[0]["message"]) == 200
+
+
+# ---------------------------------------------------------------------------
+# Tests: public dashboard get_s3_client() fallback
+# ---------------------------------------------------------------------------
+
+class TestPublicGetS3Client:
+    """Tests for public/loaders/s3_loader.py get_s3_client() fallback."""
+
+    def test_falls_back_to_default_client_without_secrets(self):
+        """
+        When st.secrets['aws'] raises KeyError, get_s3_client()
+        should fall back to boto3.client('s3') (IAM role).
+        """
+        # Set up st.secrets to raise KeyError
+        mock_st.secrets.__getitem__ = MagicMock(side_effect=KeyError("aws"))
+
+        # Import the public loader
+        public_loader_path = str(Path(__file__).parent.parent / "public")
+        if public_loader_path not in sys.path:
+            sys.path.insert(0, public_loader_path)
+
+        # Force reimport
+        if "loaders.s3_loader" in sys.modules:
+            saved = sys.modules.pop("loaders.s3_loader")
+
+        with patch("boto3.client") as mock_boto:
+            mock_boto.return_value = MagicMock()
+
+            # Import the public s3_loader (it will shadow the private one)
+            # We need to import it directly from the file
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                "public_s3_loader",
+                str(Path(__file__).parent.parent / "public" / "loaders" / "s3_loader.py"),
+            )
+            public_loader = importlib.util.module_from_spec(spec)
+
+            # Mock the config loading for the public loader
+            with patch("builtins.open", MagicMock()):
+                with patch("yaml.safe_load", return_value={
+                    "s3": {"trades_bucket": "test"},
+                    "cache_ttl": {"trades": 900},
+                    "paths": {"eod_pnl": "trades/eod_pnl.csv"},
+                }):
+                    spec.loader.exec_module(public_loader)
+
+            # Now test the fallback
+            client = public_loader.get_s3_client()
+
+            # Should have called boto3.client("s3") as fallback
+            mock_boto.assert_called_with("s3")
+
+        # Restore
+        if "saved" in dir():
+            sys.modules["loaders.s3_loader"] = saved
+
+    def test_uses_secrets_when_available(self):
+        """
+        When st.secrets['aws'] is available, get_s3_client() should use
+        explicit credentials from secrets.
+        """
+        mock_secrets = {
+            "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+            "AWS_SECRET_ACCESS_KEY": "secret_test",
+            "AWS_DEFAULT_REGION": "us-west-2",
+        }
+        mock_st.secrets.__getitem__ = MagicMock(return_value=mock_secrets)
+
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "public_s3_loader_2",
+            str(Path(__file__).parent.parent / "public" / "loaders" / "s3_loader.py"),
+        )
+        public_loader = importlib.util.module_from_spec(spec)
+
+        with patch("builtins.open", MagicMock()):
+            with patch("yaml.safe_load", return_value={
+                "s3": {"trades_bucket": "test"},
+                "cache_ttl": {"trades": 900},
+                "paths": {"eod_pnl": "trades/eod_pnl.csv"},
+            }):
+                spec.loader.exec_module(public_loader)
+
+        with patch("boto3.client") as mock_boto:
+            mock_boto.return_value = MagicMock()
+            client = public_loader.get_s3_client()
+
+            mock_boto.assert_called_with(
+                "s3",
+                aws_access_key_id="AKIA_TEST",
+                aws_secret_access_key="secret_test",
+                region_name="us-west-2",
+            )
