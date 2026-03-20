@@ -44,6 +44,11 @@ st.markdown(
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
+    /* Match page background to logo */
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background-color: #000000 !important;
+    }
+
     /* Metric styling */
     [data-testid="stMetric"] {
         background: rgba(255,255,255,0.03);
