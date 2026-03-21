@@ -46,7 +46,7 @@ if os.path.exists(_logo_path):
                  style="max-width: 600px; width: 90%; margin-bottom: 8px;" />
             <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
                 <a href="/" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">Home</a>
-                <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
+                <a href="/blog" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
                 <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
                 <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
             </div>
@@ -66,7 +66,7 @@ else:
             </p>
             <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
                 <a href="/" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">Home</a>
-                <a href="https://nous-ergon.hashnode.dev" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
+                <a href="/blog" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
                 <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
                 <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
             </div>
@@ -240,7 +240,7 @@ st.markdown(
     """
     For a deeper look at the design decisions, architecture, and lessons
     learned, check out the
-    [blog series on Hashnode](https://nous-ergon.hashnode.dev).
+    [blog series](https://nousergon.ai/blog).
     """
 )
 

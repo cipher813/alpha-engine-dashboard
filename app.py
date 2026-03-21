@@ -417,7 +417,7 @@ def main():
         buy_df = get_buy_candidates_df(signals_data)
 
         if buy_df.empty:
-            st.info("No buy candidates in today's signals.")
+            st.info("No stocks in today's population.")
         else:
             buy_df = buy_df.sort_values("score", ascending=False).reset_index(drop=True)
 
@@ -445,7 +445,7 @@ def main():
 
                 vetoed_count = buy_df["Veto"].str.startswith("VETOED").sum()
                 if vetoed_count > 0:
-                    st.warning(f"{vetoed_count} of {len(buy_df)} buy candidates vetoed by predictor")
+                    st.warning(f"{vetoed_count} of {len(buy_df)} stocks vetoed by predictor")
 
             # Select display columns
             display_cols = [

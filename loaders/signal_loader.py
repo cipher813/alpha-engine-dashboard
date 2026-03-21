@@ -126,13 +126,13 @@ def signals_to_df(signals_data: dict | None) -> pd.DataFrame:
 
 def get_buy_candidates_df(signals_data: dict | None) -> pd.DataFrame:
     """
-    Flatten the buy_candidates[] list from signals_data into a DataFrame.
-    Same column structure as signals_to_df.
+    Flatten the population stocks from signals_data into a DataFrame.
+    Uses universe[] (buy_candidates was merged into universe).
     """
     if not signals_data:
         return pd.DataFrame()
 
-    candidates = signals_data.get("buy_candidates", [])
+    candidates = signals_data.get("universe", [])
     if not candidates:
         return pd.DataFrame()
 
