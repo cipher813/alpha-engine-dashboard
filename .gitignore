@@ -1,3 +1,16 @@
 *design*.md
 public/infrastructure/certs/
 public/infrastructure/secrets.env
+
+# Config (contains S3 paths, portfolio params — use *.example for onboarding)
+config.yaml
+public/config.yaml
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
