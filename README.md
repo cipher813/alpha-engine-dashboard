@@ -175,6 +175,26 @@ sudo systemctl start dashboard
 
 ---
 
+## EC2 Memory Constraints
+
+The micro instance (t3.micro, 1GB RAM) runs two Streamlit processes:
+
+- **Port 8501** — Private dashboard (`dashboard.nousergon.ai`, Cloudflare Access protected)
+- **Port 8502** — Public portfolio page (`nousergon.ai`)
+
+With ~60-150MB per Streamlit process plus nginx and OS overhead, the instance runs near its memory limit. Mitigations in place:
+
+- **1GB swap file** (`/swapfile`) prevents OOM freezes
+- **systemd MemoryMax=300M** per Streamlit service caps runaway memory
+
+If memory issues recur, options to reduce footprint:
+
+1. **Upgrade to t3.small** (2GB RAM, ~$6/month more) — simplest, doubles headroom
+2. **Static public site** — render portfolio chart as static HTML via cron, serve with nginx directly (zero RAM for public page)
+3. **Merge into single Streamlit app** — add public pages to dashboard, use Cloudflare Access path rules to protect `/dashboard/*`. Requires refactoring the public app's custom CSS/layout into conditional page logic.
+
+---
+
 ## Related Modules
 
 - [`alpha-engine`](https://github.com/cipher813/alpha-engine) — Executor (trade execution + system overview)
