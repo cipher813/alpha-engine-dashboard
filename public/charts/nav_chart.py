@@ -23,17 +23,20 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
         df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
 
-    # Returns are already converted to decimals by app.py (port_ret, spy_ret)
-    # If raw columns are present, convert; otherwise use pre-computed
-    if "port_ret" in df.columns:
-        port_ret = df["port_ret"]
-        spy_ret = df["spy_ret"]
+    # Use pre-computed cumulative returns from app.py if available (handles day-0 baseline)
+    if "port_cum" in df.columns and "spy_cum" in df.columns:
+        port_cum = df["port_cum"] * 100  # convert decimal to percentage for display
+        spy_cum = df["spy_cum"] * 100
     else:
-        port_ret = pd.to_numeric(df["daily_return_pct"], errors="coerce").fillna(0.0) / 100.0
-        spy_ret = pd.to_numeric(df["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
-
-    port_cum = ((1 + port_ret).cumprod() - 1) * 100
-    spy_cum = ((1 + spy_ret).cumprod() - 1) * 100
+        # Fallback: compute from daily returns
+        if "port_ret" in df.columns:
+            port_ret = df["port_ret"]
+            spy_ret = df["spy_ret"]
+        else:
+            port_ret = pd.to_numeric(df["daily_return_pct"], errors="coerce").fillna(0.0) / 100.0
+            spy_ret = pd.to_numeric(df["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
+        port_cum = ((1 + port_ret).cumprod() - 1) * 100
+        spy_cum = ((1 + spy_ret).cumprod() - 1) * 100
     alpha_cum = port_cum - spy_cum
 
     dates = df["date"]
