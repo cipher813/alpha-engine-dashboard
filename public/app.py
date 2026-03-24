@@ -153,19 +153,30 @@ if _inception_override:
     eod = eod[eod["date"] >= inception_date].reset_index(drop=True)
 else:
     inception_date = eod["date"].iloc[0]
+
+# Day 0 = inception baseline — exclude from alpha/return calculations
+# Alpha accumulates from day 1 onward
+eod_active = eod.iloc[1:].reset_index(drop=True) if len(eod) > 1 else eod
 latest = eod.iloc[-1]
 nav = latest["portfolio_nav"]
 
-# Cumulative returns
-eod["port_cum"] = (1 + eod["port_ret"]).cumprod() - 1
-eod["spy_cum"] = (1 + eod["spy_ret"]).cumprod() - 1
-cumulative_alpha_bps = (eod["port_cum"].iloc[-1] - eod["spy_cum"].iloc[-1]) * 10_000
+# Cumulative returns (from day 1 onward)
+eod_active["port_cum"] = (1 + eod_active["port_ret"]).cumprod() - 1
+eod_active["spy_cum"] = (1 + eod_active["spy_ret"]).cumprod() - 1
+cumulative_alpha_bps = (eod_active["port_cum"].iloc[-1] - eod_active["spy_cum"].iloc[-1]) * 10_000 if len(eod_active) > 0 else 0
 
-# Alpha days
-up_days = (eod["daily_alpha"] > 0).sum()
-down_days = (eod["daily_alpha"] < 0).sum()
-flat_days = (eod["daily_alpha"] == 0).sum()
-total_days = len(eod)
+# For charting, include day 0 as the zero baseline
+eod["port_cum"] = 0.0
+eod["spy_cum"] = 0.0
+if len(eod) > 1:
+    eod.loc[eod.index[1:], "port_cum"] = eod_active["port_cum"].values
+    eod.loc[eod.index[1:], "spy_cum"] = eod_active["spy_cum"].values
+
+# Alpha days (exclude day 0)
+up_days = (eod_active["daily_alpha"] > 0).sum()
+down_days = (eod_active["daily_alpha"] < 0).sum()
+flat_days = (eod_active["daily_alpha"] == 0).sum()
+total_days = len(eod_active)
 
 # ---------------------------------------------------------------------------
 # KPI Row
@@ -200,8 +211,8 @@ st.markdown("### Alpha Performance")
 col_a, col_b, col_c, col_d = st.columns(4)
 
 win_rate = up_days / total_days * 100 if total_days > 0 else 0
-avg_up_bps = eod.loc[eod["daily_alpha"] > 0, "daily_alpha"].mean() * 10_000 if up_days > 0 else 0
-avg_down_bps = eod.loc[eod["daily_alpha"] < 0, "daily_alpha"].mean() * 10_000 if down_days > 0 else 0
+avg_up_bps = eod_active.loc[eod_active["daily_alpha"] > 0, "daily_alpha"].mean() * 10_000 if up_days > 0 else 0
+avg_down_bps = eod_active.loc[eod_active["daily_alpha"] < 0, "daily_alpha"].mean() * 10_000 if down_days > 0 else 0
 
 col_a.metric("Win Rate", f"{win_rate:.1f}%")
 col_b.metric("Avg Up-Alpha Day", f"+{avg_up_bps:.0f} bps")
