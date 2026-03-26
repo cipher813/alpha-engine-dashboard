@@ -3,9 +3,10 @@ Nous Ergon — About Page
 Model overview, pipeline explanation, and links.
 """
 
-import os
-
 import streamlit as st
+
+from components.header import render_header, render_footer
+from components.styles import inject_base_css
 
 st.set_page_config(
     page_title="About — Nous Ergon",
@@ -14,66 +15,8 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-st.markdown(
-    """
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #000000 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------------------------------------------------------------------------
-# Header
-# ---------------------------------------------------------------------------
-
-_logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "NousErgonLogo_260319.png")
-if os.path.exists(_logo_path):
-    import base64
-    with open(_logo_path, "rb") as _img_f:
-        _logo_b64 = base64.b64encode(_img_f.read()).decode()
-    st.markdown(
-        f"""
-        <div style="text-align: center; padding: 20px 0 0 0;">
-            <img src="data:image/png;base64,{_logo_b64}"
-                 alt="Nous Ergon: Alpha Engine"
-                 style="max-width: 600px; width: 90%; margin-bottom: 8px;" />
-            <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
-                <a href="/" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">Home</a>
-                <a href="/blog" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
-                <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
-                <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-else:
-    st.markdown(
-        """
-        <div style="text-align: center; padding: 20px 0 0 0;">
-            <h1 style="margin-bottom: 0; font-size: 2.5em; letter-spacing: 2px;">
-                Nous Ergon: Alpha Engine
-            </h1>
-            <p style="color: #aaa; font-size: 14px; margin-top: 6px;">
-                Intelligence at work
-            </p>
-            <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
-                <a href="/" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">Home</a>
-                <a href="/blog" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
-                <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
-                <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+inject_base_css()
+render_header(current_page="About")
 
 st.divider()
 
@@ -240,7 +183,8 @@ st.markdown(
     """
     For a deeper look at the design decisions, architecture, and lessons
     learned, check out the
-    [blog series](https://nousergon.ai/blog).
+    [blog series](https://nousergon.ai/blog). For detailed module
+    documentation, visit the [docs](/Docs).
     """
 )
 
@@ -250,13 +194,4 @@ st.markdown("---")
 # Footer
 # ---------------------------------------------------------------------------
 
-st.markdown(
-    """
-    <div style="text-align: center; padding: 8px 0 20px 0;">
-        <p style="color: #666; font-size: 12px;">
-            Paper trading account &mdash; not financial advice
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+render_footer()

@@ -13,6 +13,8 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from components.header import render_header, render_footer
+from components.styles import inject_base_css, inject_metric_css
 from loaders.s3_loader import load_eod_pnl
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
 
@@ -33,96 +35,12 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Custom CSS
+# Shared CSS + Header
 # ---------------------------------------------------------------------------
 
-st.markdown(
-    """
-    <style>
-    /* Hide Streamlit default header and footer for cleaner public look */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-
-    /* Match page background to logo */
-    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #000000 !important;
-    }
-
-    /* Metric styling */
-    [data-testid="stMetric"] {
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 8px;
-        padding: 12px 16px;
-    }
-    [data-testid="stMetricLabel"] {
-        font-size: 12px;
-        color: #888;
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 24px;
-    }
-
-    /* Subtle link styling */
-    a { color: #1a73e8; }
-    a:hover { color: #4a9af5; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---------------------------------------------------------------------------
-# Header
-# ---------------------------------------------------------------------------
-
-_logo_path = os.path.join(os.path.dirname(__file__), "assets", "NousErgonLogo_260319.png")
-if os.path.exists(_logo_path):
-    import base64
-    with open(_logo_path, "rb") as _img_f:
-        _logo_b64 = base64.b64encode(_img_f.read()).decode()
-    st.markdown(
-        f"""
-        <div style="text-align: center; padding: 20px 0 0 0;">
-            <img src="data:image/png;base64,{_logo_b64}"
-                 alt="Nous Ergon: Alpha Engine"
-                 style="max-width: 600px; width: 90%; margin-bottom: 8px;" />
-            <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
-                <a href="/About" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">About</a>
-                <a href="/blog" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
-                <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
-                <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-else:
-    st.markdown(
-        """
-        <div style="text-align: center; padding: 20px 0 0 0;">
-            <h1 style="margin-bottom: 0; font-size: 2.5em; letter-spacing: 2px;">
-                Nous Ergon: Alpha Engine
-            </h1>
-            <p style="color: #888; font-size: 14px; margin-top: 4px; font-style: italic;">
-                &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu; <span style="color:#666; font-size:12px;">(noose air-gone)</span>
-            </p>
-            <p style="color: #aaa; font-size: 14px; margin-top: 6px;">
-                Intelligence at work
-            </p>
-            <p style="color: #999; font-size: 13px; margin-top: 8px;">
-                AI-driven autonomous trading system
-            </p>
-            <div style="margin-top: 14px; font-size: 13px; letter-spacing: 1px;">
-                <a href="/About" target="_self" style="color: #ccc; text-decoration: none; margin: 0 16px;">About</a>
-                <a href="/blog" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Blog</a>
-                <a href="https://github.com/cipher813/alpha-engine" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">GitHub</a>
-                <a href="https://dashboard.nousergon.ai" target="_blank" style="color: #ccc; text-decoration: none; margin: 0 16px;">Dashboard</a>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+inject_base_css()
+inject_metric_css()
+render_header(current_page="Home")
 
 st.divider()
 
@@ -200,7 +118,7 @@ col4.metric("Alpha Days", f"{up_days} ▲  {down_days} ▼")
 
 st.markdown("### Portfolio vs S&P 500")
 fig_nav = make_nav_chart(eod)
-st.plotly_chart(fig_nav, use_container_width=True)
+st.plotly_chart(fig_nav, width="stretch")
 
 # ---------------------------------------------------------------------------
 # Alpha Stats
@@ -221,7 +139,7 @@ col_d.metric("Trading Days", f"{total_days}")
 
 # Daily alpha bar chart
 fig_alpha = make_alpha_histogram(eod)
-st.plotly_chart(fig_alpha, use_container_width=True)
+st.plotly_chart(fig_alpha, width="stretch")
 
 # ---------------------------------------------------------------------------
 # Current Holdings
@@ -273,7 +191,8 @@ try:
             "Sector": "—",
         })
         pos_df = pd.DataFrame(rows)
-        st.dataframe(pos_df, use_container_width=True, hide_index=True)
+        pos_df["Shares"] = pos_df["Shares"].astype(str)
+        st.dataframe(pos_df, width="stretch", hide_index=True)
     else:
         st.info("No open positions.")
 except Exception:
@@ -283,15 +202,4 @@ except Exception:
 # Footer
 # ---------------------------------------------------------------------------
 
-st.divider()
-
-st.markdown(
-    """
-    <div style="text-align: center; padding: 8px 0 20px 0;">
-        <p style="color: #666; font-size: 12px;">
-            Paper trading account &mdash; not financial advice
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+render_footer()
