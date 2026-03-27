@@ -332,6 +332,24 @@ if population_data and population_data.get("population"):
     else:
         pop_df["Risk Guard"] = "—"
 
+    # Add order book column
+    if order_book_summary:
+        ob_entries = {a["ticker"] for a in order_book_summary.get("entries_approved", [])}
+        ob_exits = {e["ticker"] for e in order_book_summary.get("exits", [])}
+        ob_covers = {c["ticker"] for c in order_book_summary.get("covers", [])}
+
+        def _order_book_label(ticker):
+            if ticker in ob_entries:
+                return "Enter"
+            if ticker in ob_exits:
+                return "Exit"
+            if ticker in ob_covers:
+                return "Cover"
+            return "—"
+        pop_df["Order Book"] = pop_df["ticker"].apply(_order_book_label)
+    else:
+        pop_df["Order Book"] = "—"
+
     # Rename columns for display
     col_rename = {
         "ticker": "Ticker",
@@ -340,7 +358,7 @@ if population_data and population_data.get("population"):
         "entry_date": "Entry Date",
     }
     display_cols = [c for c in [
-        "ticker", "sector", "conviction", "entry_date", "Predictor Inference", "Risk Guard",
+        "ticker", "sector", "conviction", "entry_date", "Predictor Inference", "Risk Guard", "Order Book",
     ] if c in pop_df.columns]
 
     if display_cols:
