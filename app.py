@@ -1,8 +1,14 @@
 """
-Alpha Engine Dashboard — Home / System Status page.
+Alpha Engine Dashboard — Public Home Page.
 Entry point for the Streamlit multi-page app.
+
+Layout (top to bottom):
+  1. Pipeline Activity — research picks, predictor vetoes, risk guard blocks, market status
+  2. Current Holdings — NAV, per-position detail with P&L
+  3. Alpha Performance — cumulative alpha chart, summary stats, market context
 """
 
+import json
 import sys
 import os
 from datetime import date, datetime, timedelta
@@ -21,13 +27,11 @@ from loaders.s3_loader import (
     load_predictor_metrics,
     load_predictor_params,
     load_predictions_json,
-    check_key_exists,
-    get_recent_s3_errors,
+    load_population_json,
+    load_order_book_summary,
 )
 from loaders.signal_loader import (
-    get_available_signal_dates,
     signals_to_df,
-    get_buy_candidates_df,
     get_signal_counts,
 )
 from loaders.db_loader import get_macro_snapshots
@@ -37,7 +41,7 @@ from loaders.db_loader import get_macro_snapshots
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Alpha Engine Dashboard",
+    page_title="Alpha Engine — Nous Ergon",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -46,47 +50,6 @@ st.set_page_config(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-SIGNAL_COLORS = {
-    "ENTER": "#d4edda",
-    "EXIT": "#f8d7da",
-    "REDUCE": "#fff3cd",
-    "HOLD": "#f8f9fa",
-}
-
-SIGNAL_TEXT_COLORS = {
-    "ENTER": "#155724",
-    "EXIT": "#721c24",
-    "REDUCE": "#856404",
-    "HOLD": "#495057",
-}
-
-SIGNAL_BADGES = {
-    "ENTER": "🟢",
-    "EXIT": "🔴",
-    "REDUCE": "🟡",
-    "HOLD": "⚪",
-}
-
-VETO_COLOR = "#f5c6cb"
-
-
-def _status_badge(ok: bool | None) -> str:
-    if ok is True:
-        return "🟢"
-    elif ok is False:
-        return "🔴"
-    return "🟡"
-
-
-def _color_signal_row(row: pd.Series) -> list[str]:
-    """Return background-color CSS for each cell in a row based on signal type."""
-    veto_val = str(row.get("Veto", ""))
-    if veto_val.startswith("VETOED"):
-        return [f"background-color: {VETO_COLOR}" for _ in row]
-    sig = str(row.get("signal", "HOLD")).upper()
-    color = SIGNAL_COLORS.get(sig, SIGNAL_COLORS["HOLD"])
-    return [f"background-color: {color}" for _ in row]
 
 
 def _fmt_pct(val, decimals=2) -> str:
@@ -103,170 +66,43 @@ def _fmt_dollar(val) -> str:
         return "—"
 
 
-def _is_weekend_gap(today_dt: date, last_date: date) -> bool:
-    """Return True if the gap between today and last_date is just a weekend."""
-    # If today is Monday and last_date is Friday, that's a normal weekend gap
-    if today_dt.weekday() == 0 and last_date.weekday() == 4:
-        return (today_dt - last_date).days <= 3
-    return False
-
-
-# ---------------------------------------------------------------------------
-# System Health checks
-# ---------------------------------------------------------------------------
-
-
-def _check_research_lambda() -> tuple[bool | None, str]:
-    """
-    Check if today's signals.json was written (proxy for Research Lambda health).
-    48-hour escalation: yellow after 1 day, red after 2 days.
-    """
+def _is_market_open() -> bool:
+    """Return True if US market is currently open (9:30 AM - 4:00 PM ET, weekdays)."""
     from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo("America/Los_Angeles"))
-    today_dt = now.date()
-    cfg = load_config()
-    bucket = cfg["s3"]["research_bucket"]
-
-    # Check today
-    key_today = cfg["paths"]["signals"].format(date=today_dt.isoformat())
-    if check_key_exists(bucket, key_today):
-        return True, "Signals written today"
-
-    # Before 7 AM PT, yesterday is acceptable
-    if now.hour < 7:
-        yesterday = today_dt - timedelta(days=1)
-        key_yday = cfg["paths"]["signals"].format(date=yesterday.isoformat())
-        if check_key_exists(bucket, key_yday):
-            return True, "Yesterday's signals (pre-market)"
-
-    # Check yesterday
-    yesterday = today_dt - timedelta(days=1)
-    key_yday = cfg["paths"]["signals"].format(date=yesterday.isoformat())
-    if check_key_exists(bucket, key_yday):
-        return None, "Yesterday's signals present (today missing)"
-
-    # Check two days ago
-    two_days = today_dt - timedelta(days=2)
-    key_2d = cfg["paths"]["signals"].format(date=two_days.isoformat())
-    if check_key_exists(bucket, key_2d):
-        # Check weekend: Friday signals on Sunday is fine
-        if _is_weekend_gap(today_dt, two_days):
-            return None, f"Last signals: {two_days.isoformat()} (weekend)"
-        return False, "No signals for 48+ hours"
-
-    return False, "No recent signals found"
+    now_et = datetime.now(ZoneInfo("US/Eastern"))
+    if now_et.weekday() >= 5:  # weekend
+        return False
+    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+    return market_open <= now_et <= market_close
 
 
-def _check_ib_gateway(eod_df: pd.DataFrame | None, trades_df: pd.DataFrame | None = None,
-                       signals_data: dict | None = None) -> tuple[bool | None, str]:
-    """
-    Check IB Gateway health via presence of today's eod_pnl entry.
-    48-hour escalation with weekend awareness. Detects executor failures.
-    """
-    if eod_df is None or eod_df.empty:
-        return False, "No eod_pnl data"
-    if "date" not in eod_df.columns:
-        return False, "No date column in eod_pnl"
-
-    eod_df = eod_df.copy()
-    eod_df["date"] = pd.to_datetime(eod_df["date"])
-    today_dt = date.today()
-
-    today_rows = eod_df[eod_df["date"].dt.date == today_dt]
-    if not today_rows.empty:
-        # Check for executor failure: P&L recorded but no trades when signals have ENTER candidates
-        if trades_df is not None and not trades_df.empty and signals_data:
-            from loaders.signal_loader import signals_to_df
-            sig_df = signals_to_df(signals_data)
-            has_enter = not sig_df.empty and "signal" in sig_df.columns and (sig_df["signal"] == "ENTER").any()
-            if has_enter and "date" in trades_df.columns:
-                trades_today = trades_df[pd.to_datetime(trades_df["date"]).dt.date == today_dt]
-                if trades_today.empty:
-                    return None, "P&L recorded but no trades executed"
-        return True, "Today's P&L recorded"
-
-    # Check yesterday
-    yesterday = today_dt - timedelta(days=1)
-    yday_rows = eod_df[eod_df["date"].dt.date == yesterday]
-    if not yday_rows.empty:
-        return None, "Last updated yesterday"
-
-    # Check two days ago with weekend awareness
-    two_days = today_dt - timedelta(days=2)
-    twoday_rows = eod_df[eod_df["date"].dt.date == two_days]
-    if not twoday_rows.empty:
-        if _is_weekend_gap(today_dt, two_days):
-            return None, f"Last P&L: {two_days.isoformat()} (weekend)"
-        return False, "No P&L for 48+ hours"
-
-    return False, "No recent P&L data"
+def _most_recent_trading_date(trades_df: pd.DataFrame | None) -> str | None:
+    """Return the most recent date with trades, or None."""
+    if trades_df is None or trades_df.empty or "date" not in trades_df.columns:
+        return None
+    dates = pd.to_datetime(trades_df["date"]).dt.date.unique()
+    return str(max(dates)) if len(dates) > 0 else None
 
 
-def _check_backtester() -> tuple[bool | None, str]:
-    """
-    Check if a backtest was run recently (within 7 days).
-    Also checks metrics.json for failure status.
-    """
-    from loaders.s3_loader import list_backtest_dates, load_backtest_file
-    dates = list_backtest_dates()
-    if not dates:
-        return None, "No backtests found"
-    latest = dates[0]
+def _safe_column(df: pd.DataFrame, *candidates: str) -> str | None:
+    """Return the first column name that exists in df."""
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
 
-    # Check for failure status in metrics.json
-    metrics = load_backtest_file(latest, "metrics.json")
-    if isinstance(metrics, dict):
-        status = metrics.get("status", "")
-        if status in ("failed", "error"):
-            return False, f"Last run FAILED: {latest}"
 
+def _color_return(val):
     try:
-        delta = (pd.Timestamp.now() - pd.Timestamp(latest)).days
-        if delta <= 7:
-            return True, f"Last run: {latest}"
-        elif delta <= 30:
-            return None, f"Last run: {latest} ({delta}d ago)"
-        return False, f"Stale — {latest} ({delta}d ago)"
-    except Exception:
-        return None, f"Last: {latest}"
-
-
-def _check_predictor(metrics: dict) -> tuple[bool | None, str]:
-    """Check predictor health via metrics/latest.json hit rate and freshness."""
-    if not metrics:
-        return False, "No metrics found"
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
-    last_run = metrics.get("last_run_utc", "")[:10]
-    hit_rate = metrics.get("hit_rate_30d_rolling")
-    if last_run != today:
-        return False, f"Not run today (last: {last_run or 'unknown'})"
-    if hit_rate is None:
-        return None, "Hit rate not yet available (need 30+ days)"
-    if hit_rate >= 0.52:
-        return True, f"Hit rate {hit_rate:.1%}"
-    elif hit_rate >= 0.48:
-        return None, f"Hit rate {hit_rate:.1%} (degraded)"
-    return False, f"Hit rate {hit_rate:.1%} (below threshold)"
-
-
-def _check_signal_quality(signals_data: dict | None) -> tuple[bool | None, str]:
-    """
-    Check signal quality via stale flag count in today's signals.
-    """
-    if not signals_data:
-        return False, "Signals not available"
-    df = signals_to_df(signals_data)
-    if df.empty:
-        return None, "Empty signal universe"
-    total = len(df)
-    stale = int(df["stale"].sum()) if "stale" in df.columns else 0
-    stale_pct = stale / total * 100 if total > 0 else 0
-    if stale_pct < 10:
-        return True, f"{total} signals, {stale} stale ({stale_pct:.0f}%)"
-    elif stale_pct < 30:
-        return None, f"{total} signals, {stale} stale ({stale_pct:.0f}%)"
-    return False, f"{total} signals, {stale} stale ({stale_pct:.0f}%) — HIGH"
+        v = float(val)
+        if v > 0:
+            return "color: #155724; background-color: #d4edda"
+        elif v < 0:
+            return "color: #721c24; background-color: #f8d7da"
+    except (ValueError, TypeError):
+        pass
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -275,8 +111,8 @@ def _check_signal_quality(signals_data: dict | None) -> tuple[bool | None, str]:
 
 
 def main():
-    st.title("📈 Alpha Engine Dashboard")
-    st.caption(f"As of {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    st.title("📈 Alpha Engine")
+    st.caption("Autonomous equity portfolio — LLM research + GBM predictions + quantitative execution")
 
     # ---- Load data ----
     today = date.today().isoformat()
@@ -286,77 +122,153 @@ def main():
         trades_df = load_trades_full()
         signals_data = load_signals_json(today)
         macro_df = get_macro_snapshots()
-        predictor_metrics = load_predictor_metrics()
+        population_data = load_population_json()
+        predictions_data = load_predictions_json()
+        order_book_summary = load_order_book_summary(today)
 
-    # -----------------------------------------------------------------------
-    # Section 1: System Health
-    # -----------------------------------------------------------------------
-    st.header("System Health")
+    # ===================================================================
+    # Section 1: Pipeline Activity
+    # ===================================================================
+    st.header("Pipeline Activity")
 
-    lambda_ok, lambda_msg = _check_research_lambda()
-    ib_ok, ib_msg = _check_ib_gateway(eod_df, trades_df, signals_data)
-    bt_ok, bt_msg = _check_backtester()
-    sq_ok, sq_msg = _check_signal_quality(signals_data)
-    pred_ok, pred_msg = _check_predictor(predictor_metrics)
+    # --- 1a. Research Picks (Weekly) ---
+    st.subheader("Research Population (Weekly)")
+    if population_data and population_data.get("population"):
+        pop = population_data["population"]
+        pop_date = population_data.get("date", "unknown")
+        regime = population_data.get("market_regime", "unknown")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+        regime_emoji = {"bull": "🐂", "bear": "🐻", "neutral": "➡️", "caution": "⚠️"}.get(
+            str(regime).lower(), "📊"
+        )
 
-    with col1:
-        badge = _status_badge(lambda_ok)
-        st.metric(label=f"{badge} Research Lambda", value=lambda_msg)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Market Regime", f"{regime_emoji} {str(regime).title()}")
+        with c2:
+            st.metric("Universe Size", str(len(pop)))
+        with c3:
+            st.metric("Last Refreshed", pop_date)
 
-    with col2:
-        badge = _status_badge(ib_ok)
-        st.metric(label=f"{badge} IB Gateway", value=ib_msg)
+        pop_df = pd.DataFrame(pop)
+        # Show tickers grouped by sector with entry date
+        display_cols = [c for c in ["ticker", "sector", "long_term_rating", "conviction", "entry_date"]
+                        if c in pop_df.columns]
+        if display_cols:
+            pop_display = pop_df[display_cols].sort_values("sector")
+            st.dataframe(pop_display, use_container_width=True, hide_index=True)
+    else:
+        st.info("Population data not available. Research pipeline may not have run yet.")
 
-    with col3:
-        badge = _status_badge(bt_ok)
-        st.metric(label=f"{badge} Backtester", value=bt_msg)
+    # --- 1b. Predictor Vetoes (Daily) ---
+    st.subheader("Predictor Vetoes (Daily)")
+    if predictions_data:
+        pred_list = list(predictions_data.values())
+        # Filter to population tickers if available
+        if population_data and population_data.get("population"):
+            pop_tickers = {p["ticker"] for p in population_data["population"]}
+            pred_list = [p for p in pred_list if p.get("ticker") in pop_tickers]
 
-    with col4:
-        badge = _status_badge(sq_ok)
-        st.metric(label=f"{badge} Signal Quality", value=sq_msg)
+        vetoed = [p for p in pred_list if p.get("gbm_veto")]
+        if vetoed:
+            veto_df = pd.DataFrame(vetoed)[["ticker", "predicted_alpha", "combined_rank"]]
+            veto_df["predicted_alpha"] = veto_df["predicted_alpha"].apply(
+                lambda x: f"{x*100:+.2f}%" if pd.notna(x) else "—"
+            )
+            veto_df.columns = ["Ticker", "Predicted Alpha", "Rank"]
+            st.warning(f"{len(vetoed)} ticker(s) vetoed — negative predicted alpha + bottom-half rank")
+            st.dataframe(veto_df, use_container_width=True, hide_index=True)
+        else:
+            n_preds = len(pred_list)
+            st.success(f"No vetoes today ({n_preds} tickers predicted)")
+    else:
+        st.info("Predictor data not available for today.")
 
-    with col5:
-        badge = _status_badge(pred_ok)
-        st.metric(label=f"{badge} Predictor", value=pred_msg)
+    # --- 1c. Risk Guard Blocks (Daily) ---
+    st.subheader("Risk Guard (Daily)")
+    if order_book_summary:
+        approved = order_book_summary.get("entries_approved", [])
+        blocked = order_book_summary.get("entries_blocked", [])
+        exits = order_book_summary.get("exits", [])
+        covers = order_book_summary.get("covers", [])
 
-    # S3 error display (Gap #13)
-    s3_errors = get_recent_s3_errors()
-    if s3_errors:
-        recent_cutoff = (datetime.utcnow() - timedelta(minutes=15)).isoformat()
-        recent_errors = [e for e in s3_errors if e["timestamp"] >= recent_cutoff]
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("Approved", str(len(approved)))
+        with c2:
+            st.metric("Blocked", str(len(blocked)))
+        with c3:
+            st.metric("Exits", str(len(exits)))
+        with c4:
+            st.metric("Covers", str(len(covers)))
 
-        if recent_errors:
-            st.error(f"{len(recent_errors)} S3 errors in the last 15 minutes")
+        if approved:
+            st.success("Approved entries: " + ", ".join(a["ticker"] for a in approved))
+        if blocked:
+            blocked_df = pd.DataFrame(blocked)
+            blocked_df.columns = ["Ticker", "Reason"]
+            st.dataframe(blocked_df, use_container_width=True, hide_index=True)
+        if covers:
+            st.warning("Short covers: " + ", ".join(c["ticker"] for c in covers))
+    else:
+        st.info("Order book summary not available for today.")
 
-        with st.expander(f"S3 Errors ({len(s3_errors)} total)", expanded=bool(recent_errors)):
-            error_df = pd.DataFrame(s3_errors[-20:])  # Show last 20
-            st.dataframe(error_df, use_container_width=True, hide_index=True)
+    # --- 1d. Market Status / Trades ---
+    st.subheader("Trades" if not _is_market_open() else "Order Book (Market Open)")
+    if trades_df is not None and not trades_df.empty and "date" in trades_df.columns:
+        trades_df_copy = trades_df.copy()
+        trades_df_copy["date"] = pd.to_datetime(trades_df_copy["date"]).dt.date
+
+        if _is_market_open():
+            # Show today's order book entries
+            if order_book_summary:
+                approved = order_book_summary.get("entries_approved", [])
+                if approved:
+                    st.info("Pending entries: " + ", ".join(a["ticker"] for a in approved))
+                else:
+                    st.info("No pending entries in order book")
+            else:
+                st.info("No order book data available")
+        else:
+            # Show most recent trading day's buys/sells
+            recent_date = _most_recent_trading_date(trades_df)
+            if recent_date:
+                recent_trades = trades_df_copy[trades_df_copy["date"] == date.fromisoformat(recent_date)]
+                if not recent_trades.empty:
+                    action_col = _safe_column(recent_trades, "action", "signal")
+                    display_cols = ["ticker"]
+                    if action_col:
+                        display_cols.append(action_col)
+                    st.caption(f"Trades from {recent_date}")
+                    st.dataframe(
+                        recent_trades[display_cols].reset_index(drop=True),
+                        use_container_width=True, hide_index=True,
+                    )
+                else:
+                    st.info("No recent trades.")
+            else:
+                st.info("No trade history available.")
+    else:
+        st.info("Trade data not available.")
 
     st.divider()
 
-    # -----------------------------------------------------------------------
-    # Section 2: Today's Snapshot
-    # -----------------------------------------------------------------------
-    st.header("Today's Snapshot")
+    # ===================================================================
+    # Section 2: Current Holdings
+    # ===================================================================
+    st.header("Current Holdings")
 
-    nav = daily_ret_norm = spy_ret_norm = alpha_norm = None
+    # Portfolio NAV
+    nav = None
+    daily_ret_norm = alpha_norm = None
+    if eod_df is not None and not eod_df.empty:
+        eod_df_copy = eod_df.copy()
+        eod_df_copy["date"] = pd.to_datetime(eod_df_copy["date"])
+        today_rows = eod_df_copy[eod_df_copy["date"].dt.date == date.today()]
+        latest_row = today_rows.iloc[-1] if not today_rows.empty else eod_df_copy.iloc[-1]
 
-    if eod_df is None or eod_df.empty:
-        st.warning("Portfolio data not available yet.")
-        today_row = None
-    else:
-        eod_df["date"] = pd.to_datetime(eod_df["date"])
-        today_rows = eod_df[eod_df["date"].dt.date == date.today()]
-        today_row = today_rows.iloc[-1] if not today_rows.empty else eod_df.iloc[-1]
+        nav = latest_row.get("portfolio_nav")
 
-        nav = today_row.get("portfolio_nav")
-        daily_ret = today_row.get("daily_return_pct")
-        spy_ret = today_row.get("spy_return_pct")
-        alpha = today_row.get("daily_alpha_pct")
-
-        # Detect percent vs decimal
         def _norm(v):
             try:
                 v = float(v)
@@ -364,132 +276,176 @@ def main():
             except Exception:
                 return None
 
-        daily_ret_norm = _norm(daily_ret)
-        spy_ret_norm = _norm(spy_ret)
-        alpha_norm = _norm(alpha)
+        daily_ret_norm = _norm(latest_row.get("daily_return_pct"))
+        alpha_norm = _norm(latest_row.get("daily_alpha_pct"))
 
-    signal_counts = get_signal_counts(signals_data) if signals_data else {}
-    total_signals = sum(signal_counts.values())
-    signal_summary = (
-        f"ENTER: {signal_counts.get('ENTER', 0)} | EXIT: {signal_counts.get('EXIT', 0)} | "
-        f"HOLD: {signal_counts.get('HOLD', 0)}"
-    )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Portfolio NAV", _fmt_dollar(nav) if nav else "—")
+        with c2:
+            st.metric("Daily Return", f"{daily_ret_norm*100:+.2f}%" if daily_ret_norm is not None else "—")
+        with c3:
+            st.metric("Daily Alpha vs SPY", f"{alpha_norm*100:+.2f}%" if alpha_norm is not None else "—")
 
-    snap_col1, snap_col2, snap_col3, snap_col4 = st.columns(4)
+    # Positions table
+    positions_df = None
+    if eod_df is not None and not eod_df.empty and "positions_snapshot" in eod_df.columns:
+        eod_df_copy = eod_df.copy()
+        eod_df_copy["date"] = pd.to_datetime(eod_df_copy["date"])
+        latest_row = eod_df_copy.iloc[-1]
+        try:
+            snapshot_raw = latest_row["positions_snapshot"]
+            if pd.notna(snapshot_raw) and snapshot_raw:
+                positions_data = json.loads(str(snapshot_raw))
+                if isinstance(positions_data, list):
+                    positions_df = pd.DataFrame(positions_data)
+                elif isinstance(positions_data, dict):
+                    positions_df = pd.DataFrame([positions_data])
+        except Exception:
+            positions_df = None
 
-    with snap_col1:
-        st.metric(
-            "Portfolio NAV",
-            _fmt_dollar(nav) if nav is not None else "—",
-        )
+    if positions_df is not None and not positions_df.empty:
+        # Merge with signals for score/conviction
+        if signals_data:
+            sig_df = signals_to_df(signals_data)
+            if not sig_df.empty and "ticker" in sig_df.columns and "ticker" in positions_df.columns:
+                positions_df = positions_df.merge(
+                    sig_df[["ticker", "score", "signal", "conviction"]],
+                    on="ticker", how="left", suffixes=("", "_signal"),
+                )
 
-    with snap_col2:
-        if daily_ret_norm is not None:
-            st.metric(
-                "Daily Return",
-                f"{daily_ret_norm * 100:+.2f}%",
-            )
-        else:
-            st.metric("Daily Return", "—")
+        # Merge with trades for entry_price and entry_date
+        if trades_df is not None and not trades_df.empty:
+            action_col = _safe_column(trades_df, "action", "signal")
+            if action_col:
+                enter_trades = trades_df[trades_df[action_col].str.upper() == "ENTER"].copy()
+                if not enter_trades.empty and "ticker" in enter_trades.columns and "ticker" in positions_df.columns:
+                    if "date" in enter_trades.columns:
+                        enter_trades["date"] = pd.to_datetime(enter_trades["date"])
+                        latest_entry = enter_trades.sort_values("date").groupby("ticker").last().reset_index()
+                        price_col = _safe_column(latest_entry, "price", "fill_price", "price_at_order")
+                        if price_col:
+                            positions_df = positions_df.merge(
+                                latest_entry[["ticker", price_col, "date"]].rename(
+                                    columns={price_col: "entry_price", "date": "entry_date"}
+                                ),
+                                on="ticker", how="left",
+                            )
 
-    with snap_col3:
-        if alpha_norm is not None:
-            st.metric(
-                "vs SPY (Alpha)",
-                f"{alpha_norm * 100:+.2f}%",
-            )
-        else:
-            st.metric("vs SPY (Alpha)", "—")
+        # Compute P&L
+        if "market_value" in positions_df.columns and "shares" in positions_df.columns:
+            positions_df["shares"] = pd.to_numeric(positions_df["shares"], errors="coerce")
+            positions_df["market_value"] = pd.to_numeric(positions_df["market_value"], errors="coerce")
+            positions_df["current_price"] = positions_df["market_value"] / positions_df["shares"]
 
-    with snap_col4:
-        st.metric("Signal Count", f"{total_signals}", delta=signal_summary)
+            if "entry_price" in positions_df.columns:
+                positions_df["entry_price"] = pd.to_numeric(positions_df["entry_price"], errors="coerce")
+                positions_df["unrealized_pnl"] = (
+                    (positions_df["current_price"] - positions_df["entry_price"]) * positions_df["shares"]
+                )
+                positions_df["return_pct"] = positions_df["current_price"] / positions_df["entry_price"] - 1
 
-    st.divider()
+            if "entry_date" in positions_df.columns:
+                positions_df["days_held"] = (
+                    pd.Timestamp.now() - pd.to_datetime(positions_df["entry_date"])
+                ).dt.days
 
-    # -----------------------------------------------------------------------
-    # Section 3: Today's Signals (with veto status — Gap #2)
-    # -----------------------------------------------------------------------
-    st.header("Today's Signals")
+        # P&L summary
+        if "unrealized_pnl" in positions_df.columns:
+            total_pnl = positions_df["unrealized_pnl"].sum()
+            pos_count = len(positions_df)
+            avg_days = positions_df["days_held"].mean() if "days_held" in positions_df.columns else None
 
-    if not signals_data:
-        st.warning("Signals not available for today. Check Research Lambda status.")
-    else:
-        buy_df = get_buy_candidates_df(signals_data)
+            pc1, pc2, pc3 = st.columns(3)
+            with pc1:
+                st.metric("Total Unrealized P&L", _fmt_dollar(total_pnl))
+            with pc2:
+                st.metric("Positions", str(pos_count))
+            with pc3:
+                st.metric("Avg Days Held", f"{avg_days:.0f}" if avg_days is not None else "—")
 
-        if buy_df.empty:
-            st.info("No stocks in today's population.")
-        else:
-            buy_df = buy_df.sort_values("score", ascending=False).reset_index(drop=True)
-
-            # Format stale flag
-            if "stale" in buy_df.columns:
-                buy_df["stale"] = buy_df["stale"].apply(lambda x: "⚠" if x else "")
-
-            # Add veto status
-            predictions = load_predictions_json()
-            predictor_params = load_predictor_params()
-            veto_threshold = predictor_params.get("veto_confidence", 0.65)
-
-            if predictions and "ticker" in buy_df.columns:
-                def _veto_status(ticker):
-                    pred = predictions.get(ticker, {})
-                    if not pred:
-                        return ""
-                    direction = pred.get("predicted_direction", "")
-                    conf = pred.get("prediction_confidence") or 0.0
-                    if direction == "DOWN" and conf >= veto_threshold:
-                        return f"VETOED ({conf:.0%})"
-                    return ""
-
-                buy_df["Veto"] = buy_df["ticker"].apply(_veto_status)
-
-                vetoed_count = buy_df["Veto"].str.startswith("VETOED").sum()
-                if vetoed_count > 0:
-                    st.warning(f"{vetoed_count} of {len(buy_df)} stocks vetoed by predictor")
-
-            # Select display columns
-            display_cols = [
-                c for c in [
-                    "ticker", "sector", "signal", "score", "conviction",
-                    "rating", "technical", "news", "research",
-                    "Veto", "price_target_upside", "thesis_summary", "stale"
-                ]
-                if c in buy_df.columns
+        # Positions table
+        display_cols = [
+            c for c in [
+                "ticker", "sector", "shares", "entry_price", "current_price",
+                "unrealized_pnl", "return_pct", "days_held", "score", "signal",
             ]
-            display_df = buy_df[display_cols].copy()
+            if c in positions_df.columns
+        ]
 
-            # Apply signal color styling
-            styled = display_df.style.apply(_color_signal_row, axis=1)
-
-            # Format numeric columns
-            for col in ["score", "conviction", "technical", "news", "research"]:
-                if col in display_df.columns:
-                    styled = styled.format({col: "{:.1f}"}, na_rep="—")
-            if "price_target_upside" in display_df.columns:
-                styled = styled.format({"price_target_upside": "{:.1%}"}, na_rep="—")
-
+        if display_cols:
+            display_pos = positions_df[display_cols].copy()
+            styled = display_pos.style
+            if "return_pct" in display_pos.columns:
+                styled = styled.map(_color_return, subset=["return_pct"])
+                styled = styled.format({"return_pct": "{:.1%}"}, na_rep="—")
+            if "unrealized_pnl" in display_pos.columns:
+                styled = styled.format({"unrealized_pnl": "${:,.2f}"}, na_rep="—")
+            if "entry_price" in display_pos.columns:
+                styled = styled.format({"entry_price": "${:.2f}"}, na_rep="—")
+            if "current_price" in display_pos.columns:
+                styled = styled.format({"current_price": "${:.2f}"}, na_rep="—")
+            if "score" in display_pos.columns:
+                styled = styled.format({"score": "{:.1f}"}, na_rep="—")
             st.dataframe(styled, use_container_width=True, hide_index=True)
+    else:
+        st.info("No positions data available.")
 
     st.divider()
 
-    # -----------------------------------------------------------------------
-    # Section 4: Market Context
-    # -----------------------------------------------------------------------
-    st.header("Market Context")
+    # ===================================================================
+    # Section 3: Alpha Performance + Market Context
+    # ===================================================================
+    st.header("Performance")
 
-    if macro_df is None or macro_df.empty:
-        st.warning("Macro data not available.")
+    if eod_df is not None and not eod_df.empty:
+        try:
+            from charts.alpha_chart import make_alpha_chart
+            alpha_fig = make_alpha_chart(eod_df)
+            st.plotly_chart(alpha_fig, use_container_width=True)
+        except Exception:
+            st.info("Alpha chart not available.")
+
+        # Summary stats
+        eod_copy = eod_df.copy()
+        eod_copy["date"] = pd.to_datetime(eod_copy["date"])
+
+        if "daily_return_pct" in eod_copy.columns and "daily_alpha_pct" in eod_copy.columns:
+            returns = pd.to_numeric(eod_copy["daily_return_pct"], errors="coerce").dropna()
+            alphas = pd.to_numeric(eod_copy["daily_alpha_pct"], errors="coerce").dropna()
+
+            # Normalize if stored as percent
+            if returns.abs().max() > 2:
+                returns = returns / 100
+            if alphas.abs().max() > 2:
+                alphas = alphas / 100
+
+            cumulative_ret = (1 + returns).prod() - 1
+            sharpe = (returns.mean() / returns.std() * (252 ** 0.5)) if len(returns) >= 30 and returns.std() > 0 else None
+            max_dd = (returns.cumsum() - returns.cumsum().cummax()).min()
+
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            with sc1:
+                st.metric("Total Return", f"{cumulative_ret*100:+.1f}%" if pd.notna(cumulative_ret) else "—")
+            with sc2:
+                st.metric("Sharpe Ratio", f"{sharpe:.2f}" if sharpe is not None else "—")
+            with sc3:
+                st.metric("Max Drawdown", f"{max_dd*100:.1f}%" if pd.notna(max_dd) else "—")
+            with sc4:
+                st.metric("Cumulative Alpha", f"{alphas.sum()*100:+.1f}%" if not alphas.empty else "—")
     else:
-        macro_df["date"] = pd.to_datetime(macro_df["date"])
-        today_macro = macro_df[macro_df["date"].dt.date == date.today()]
+        st.info("Performance data not available.")
 
+    # Market Context
+    st.subheader("Market Context")
+    if macro_df is not None and not macro_df.empty:
+        macro_df_copy = macro_df.copy()
+        macro_df_copy["date"] = pd.to_datetime(macro_df_copy["date"])
+        today_macro = macro_df_copy[macro_df_copy["date"].dt.date == date.today()]
         if today_macro.empty:
-            # Use most recent available
-            today_macro = macro_df.tail(1)
+            today_macro = macro_df_copy.tail(1)
 
-        if today_macro.empty:
-            st.info("No macro snapshot for today.")
-        else:
+        if not today_macro.empty:
             row = today_macro.iloc[-1]
             regime = row.get("market_regime", row.get("regime", "—"))
             vix = row.get("vix", "—")
@@ -511,6 +467,8 @@ def main():
                     st.metric("10yr Yield", f"{float(yield_10yr):.2f}%")
                 except Exception:
                     st.metric("10yr Yield", str(yield_10yr))
+    else:
+        st.info("Macro data not available.")
 
 
 if __name__ == "__main__":

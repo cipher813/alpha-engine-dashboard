@@ -381,3 +381,23 @@ def load_predictor_params() -> dict:
         logger.error("Failed to load predictor params: %s", e)
         _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
         return {}
+
+
+@st.cache_data(ttl=_ttl("research"))
+def load_population_json() -> dict | None:
+    """Load population/latest.json from the research bucket.
+
+    Returns the full dict with 'population', 'date', 'market_regime', etc.
+    Returns None if the file does not exist.
+    """
+    return download_s3_json(_research_bucket(), "population/latest.json")
+
+
+@st.cache_data(ttl=_ttl("signals"))
+def load_order_book_summary(date_str: str) -> dict | None:
+    """Load order_book_summary.json for a given date from the research bucket.
+
+    Returns None if the file does not exist (backward compatible).
+    """
+    key = f"signals/{date_str}/order_book_summary.json"
+    return download_s3_json(_research_bucket(), key)
