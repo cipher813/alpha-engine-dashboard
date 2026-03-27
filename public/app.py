@@ -270,6 +270,16 @@ if population_data and population_data.get("population"):
     pop_date = population_data.get("date", "unknown")
     regime = population_data.get("market_regime", "unknown")
 
+    # Last refreshed: most recent of population, predictor, or risk guard
+    last_refreshed = pop_date
+    _last_run = (predictor_metrics or {}).get("last_run_utc", "")[:10]
+    if _last_run and _last_run > last_refreshed:
+        last_refreshed = _last_run
+    if order_book_summary:
+        _ob_date = order_book_summary.get("date", "")
+        if _ob_date and _ob_date > last_refreshed:
+            last_refreshed = _ob_date
+
     regime_emoji = {"bull": "🐂", "bear": "🐻", "neutral": "➡️", "caution": "⚠️"}.get(
         str(regime).lower(), "📊"
     )
@@ -280,7 +290,7 @@ if population_data and population_data.get("population"):
     with col2:
         st.metric("Universe Size", str(len(pop)))
     with col3:
-        st.metric("Last Refreshed", pop_date)
+        st.metric("Last Refreshed", last_refreshed)
 
     # Build combined table: population + predictor veto + risk guard status
     pop_df = pd.DataFrame(pop)
@@ -322,21 +332,11 @@ if population_data and population_data.get("population"):
     else:
         pop_df["Risk Guard"] = "—"
 
-    # Last refreshed captions
-    captions = []
-    last_run = (predictor_metrics or {}).get("last_run_utc", "")[:10]
-    if last_run:
-        captions.append(f"Predictor: {last_run}")
-    if order_book_summary:
-        captions.append(f"Risk Guard: {order_book_summary.get('date', '—')}")
-    if captions:
-        st.caption("Last refreshed — " + " | ".join(captions))
-
     # Rename columns for display
     col_rename = {
         "ticker": "Ticker",
         "sector": "Sector",
-        "conviction": "Conviction",
+        "conviction": "Research Conviction",
         "entry_date": "Entry Date",
     }
     display_cols = [c for c in [
