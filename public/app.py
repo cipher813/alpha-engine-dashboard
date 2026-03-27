@@ -285,17 +285,23 @@ if population_data and population_data.get("population"):
     # Build combined table: population + predictor veto + risk guard status
     pop_df = pd.DataFrame(pop)
 
-    # Add predictor veto column
+    # Title-case conviction
+    if "conviction" in pop_df.columns:
+        pop_df["conviction"] = pop_df["conviction"].apply(
+            lambda x: str(x).title() if pd.notna(x) else "—"
+        )
+
+    # Add predictor inference column
     if predictions_data:
         def _veto_label(ticker):
             pred = predictions_data.get(ticker, {})
             if pred.get("gbm_veto"):
-                alpha = pred.get("predicted_alpha", 0)
-                return f"VETOED ({alpha*100:+.1f}%)"
+                direction = pred.get("predicted_direction", "Down")
+                return f"Vetoed: {direction.title()}"
             return "—"
-        pop_df["Predictor"] = pop_df["ticker"].apply(_veto_label)
+        pop_df["Predictor Inference"] = pop_df["ticker"].apply(_veto_label)
     else:
-        pop_df["Predictor"] = "—"
+        pop_df["Predictor Inference"] = "—"
 
     # Add risk guard column
     if order_book_summary:
@@ -306,7 +312,11 @@ if population_data and population_data.get("population"):
             if ticker in approved_tickers:
                 return "Approved"
             if ticker in blocked_map:
-                return blocked_map[ticker]
+                reason = blocked_map[ticker]
+                # Clean up technical reason strings for display
+                reason = reason.replace("Conviction '", "").replace("' not in allowed set", "")
+                reason = reason.replace("('rising', 'stable')", "").strip()
+                return f"Blocked: {reason.title()}" if reason else "Blocked"
             return "—"
         pop_df["Risk Guard"] = pop_df["ticker"].apply(_risk_guard_label)
     else:
@@ -322,13 +332,20 @@ if population_data and population_data.get("population"):
     if captions:
         st.caption("Last refreshed — " + " | ".join(captions))
 
-    # Display
+    # Rename columns for display
+    col_rename = {
+        "ticker": "Ticker",
+        "sector": "Sector",
+        "conviction": "Conviction",
+        "entry_date": "Entry Date",
+    }
     display_cols = [c for c in [
-        "ticker", "sector", "conviction", "entry_date", "Predictor", "Risk Guard",
+        "ticker", "sector", "conviction", "entry_date", "Predictor Inference", "Risk Guard",
     ] if c in pop_df.columns]
 
     if display_cols:
-        st.dataframe(pop_df[display_cols].sort_values("sector"), width="stretch", hide_index=True)
+        display_df = pop_df[display_cols].sort_values("sector").rename(columns=col_rename)
+        st.dataframe(display_df, width="stretch", hide_index=True)
 else:
     st.info("Population data not available. Research pipeline may not have run yet.")
 
