@@ -2,12 +2,17 @@
 Nous Ergon — Public Portfolio Page
 https://nousergon.ai
 
-Displays portfolio performance vs S&P 500, cumulative alpha,
-and current holdings. All data is read-only from S3 (server-side).
+Layout (top to bottom):
+  1. Performance — KPI metrics + NAV vs SPY chart + alpha stats
+  2. Current Holdings — positions with value
+  3. Order Book / Trades — market-aware view
+  4. Daily Decisions — predictor vetoes + risk guard blocks
+  5. Research Population — weekly picks
 """
 
 import json
 import os
+from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +20,14 @@ import yaml
 
 from components.header import render_header, render_footer
 from components.styles import inject_base_css, inject_metric_css
-from loaders.s3_loader import load_eod_pnl
+from loaders.s3_loader import (
+    load_eod_pnl,
+    load_trades_full,
+    load_population_json,
+    load_predictions_json,
+    load_order_book_summary,
+    load_predictor_metrics,
+)
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
 
 # Load config
@@ -35,6 +47,28 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_market_open() -> bool:
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("US/Eastern"))
+    if now_et.weekday() >= 5:
+        return False
+    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+    return market_open <= now_et <= market_close
+
+
+def _most_recent_trading_date(trades_df: pd.DataFrame | None) -> str | None:
+    if trades_df is None or trades_df.empty or "date" not in trades_df.columns:
+        return None
+    dates = pd.to_datetime(trades_df["date"]).dt.date.unique()
+    return str(max(dates)) if len(dates) > 0 else None
+
+
+# ---------------------------------------------------------------------------
 # Shared CSS + Header
 # ---------------------------------------------------------------------------
 
@@ -48,7 +82,13 @@ st.divider()
 # Load data
 # ---------------------------------------------------------------------------
 
+today = date.today().isoformat()
 eod = load_eod_pnl()
+trades_df = load_trades_full()
+population_data = load_population_json()
+predictions_data = load_predictions_json()
+predictor_metrics = load_predictor_metrics()
+order_book_summary = load_order_book_summary(today)
 
 if eod is None or eod.empty:
     st.warning("Portfolio data temporarily unavailable. Please check back later.")
@@ -58,13 +98,11 @@ if eod is None or eod.empty:
 eod["date"] = pd.to_datetime(eod["date"])
 eod = eod.sort_values("date").reset_index(drop=True)
 
-# Returns in eod_pnl.csv are stored as percentages (e.g., 0.876 = 0.876%)
-# Convert to decimals for cumulative return math
 eod["port_ret"] = pd.to_numeric(eod["daily_return_pct"], errors="coerce").fillna(0.0) / 100.0
 eod["spy_ret"] = pd.to_numeric(eod["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
 eod["daily_alpha"] = pd.to_numeric(eod["daily_alpha_pct"], errors="coerce").fillna(0.0) / 100.0
 
-# Inception date: configurable override for account resets, else auto-detect
+# Inception date
 _inception_override = _cfg.get("inception_date")
 if _inception_override:
     inception_date = pd.Timestamp(_inception_override)
@@ -72,36 +110,32 @@ if _inception_override:
 else:
     inception_date = eod["date"].iloc[0]
 
-# Day 0 = inception baseline — exclude from alpha/return calculations
-# Alpha accumulates from day 1 onward
+# Day 0 = inception baseline
 eod_active = eod.iloc[1:].reset_index(drop=True) if len(eod) > 1 else eod
 latest = eod.iloc[-1]
 nav = latest["portfolio_nav"]
 
-# Cumulative returns (from day 1 onward)
+# Cumulative returns
 eod_active["port_cum"] = (1 + eod_active["port_ret"]).cumprod() - 1
 eod_active["spy_cum"] = (1 + eod_active["spy_ret"]).cumprod() - 1
 cumulative_alpha_bps = (eod_active["port_cum"].iloc[-1] - eod_active["spy_cum"].iloc[-1]) * 10_000 if len(eod_active) > 0 else 0
 
-# For charting, include day 0 as the zero baseline
 eod["port_cum"] = 0.0
 eod["spy_cum"] = 0.0
 if len(eod) > 1:
     eod.loc[eod.index[1:], "port_cum"] = eod_active["port_cum"].values
     eod.loc[eod.index[1:], "spy_cum"] = eod_active["spy_cum"].values
 
-# Alpha days (exclude day 0)
+# Alpha days
 up_days = (eod_active["daily_alpha"] > 0).sum()
 down_days = (eod_active["daily_alpha"] < 0).sum()
-flat_days = (eod_active["daily_alpha"] == 0).sum()
 total_days = len(eod_active)
 
-# ---------------------------------------------------------------------------
-# KPI Row
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Section 1: Performance — KPIs + Charts
+# ===========================================================================
 
 col1, col2, col3, col4 = st.columns(4)
-
 col1.metric("Inception", inception_date.strftime("%b %d, %Y"))
 col2.metric("Portfolio NAV", f"${nav:,.0f}")
 col3.metric(
@@ -112,22 +146,15 @@ col3.metric(
 )
 col4.metric("Alpha Days", f"{up_days} ▲  {down_days} ▼")
 
-# ---------------------------------------------------------------------------
-# NAV vs SPY Chart
-# ---------------------------------------------------------------------------
-
+# NAV vs SPY chart
 st.markdown("### Portfolio vs S&P 500")
 fig_nav = make_nav_chart(eod)
 st.plotly_chart(fig_nav, width="stretch")
 
-# ---------------------------------------------------------------------------
-# Alpha Stats
-# ---------------------------------------------------------------------------
-
+# Alpha stats
 st.markdown("### Alpha Performance")
 
 col_a, col_b, col_c, col_d = st.columns(4)
-
 win_rate = up_days / total_days * 100 if total_days > 0 else 0
 avg_up_bps = eod_active.loc[eod_active["daily_alpha"] > 0, "daily_alpha"].mean() * 10_000 if up_days > 0 else 0
 avg_down_bps = eod_active.loc[eod_active["daily_alpha"] < 0, "daily_alpha"].mean() * 10_000 if down_days > 0 else 0
@@ -137,13 +164,14 @@ col_b.metric("Avg Up-Alpha Day", f"+{avg_up_bps:.0f} bps")
 col_c.metric("Avg Down-Alpha Day", f"{avg_down_bps:.0f} bps")
 col_d.metric("Trading Days", f"{total_days}")
 
-# Daily alpha bar chart
 fig_alpha = make_alpha_histogram(eod)
 st.plotly_chart(fig_alpha, width="stretch")
 
-# ---------------------------------------------------------------------------
-# Current Holdings
-# ---------------------------------------------------------------------------
+st.divider()
+
+# ===========================================================================
+# Section 2: Current Holdings
+# ===========================================================================
 
 st.markdown("### Current Holdings")
 
@@ -153,11 +181,6 @@ try:
         snapshot_raw = "{}"
     positions = json.loads(snapshot_raw)
 
-    # positions_snapshot can be:
-    #   - dict: {"AAPL": {"shares": 100, "market_value": 15000, ...}, ...}
-    #   - list: [{"ticker": "AAPL", "market_value": 15000, ...}, ...]
-    #   - empty dict/list
-    # Build rows from dict or list format
     rows = []
     total_invested = 0.0
     if isinstance(positions, dict) and positions:
@@ -182,10 +205,9 @@ try:
             })
 
     if rows:
-        # Add cash row
         cash = nav - total_invested
         rows.append({
-            "Ticker": "💵 CASH",
+            "Ticker": "CASH",
             "Shares": "—",
             "Value": f"${cash:,.0f}",
             "Sector": "—",
@@ -197,6 +219,146 @@ try:
         st.info("No open positions.")
 except Exception:
     st.info("Position data unavailable.")
+
+st.divider()
+
+# ===========================================================================
+# Section 3: Order Book / Trades
+# ===========================================================================
+
+if _is_market_open():
+    st.markdown("### Order Book (Market Open)")
+    if order_book_summary:
+        ob_date = order_book_summary.get("date", "—")
+        st.caption(f"Last refreshed: {ob_date}")
+        approved = order_book_summary.get("entries_approved", [])
+        exits = order_book_summary.get("exits", [])
+        covers = order_book_summary.get("covers", [])
+        if approved:
+            st.info("Pending entries: " + ", ".join(a["ticker"] for a in approved))
+        if exits:
+            st.info("Pending exits: " + ", ".join(e["ticker"] for e in exits))
+        if covers:
+            st.warning("Short covers: " + ", ".join(c["ticker"] for c in covers))
+        if not approved and not exits and not covers:
+            st.info("No pending orders in today's order book.")
+    else:
+        st.info("No order book data available.")
+else:
+    st.markdown("### Recent Trades")
+    if trades_df is not None and not trades_df.empty and "date" in trades_df.columns:
+        recent_date = _most_recent_trading_date(trades_df)
+        if recent_date:
+            trades_copy = trades_df.copy()
+            trades_copy["date"] = pd.to_datetime(trades_copy["date"]).dt.date
+            recent_trades = trades_copy[trades_copy["date"] == date.fromisoformat(recent_date)]
+            if not recent_trades.empty:
+                display_cols = ["ticker"]
+                for col in ["action", "signal"]:
+                    if col in recent_trades.columns:
+                        display_cols.append(col)
+                        break
+                st.caption(f"Trades from {recent_date}")
+                st.dataframe(
+                    recent_trades[display_cols].reset_index(drop=True),
+                    width="stretch", hide_index=True,
+                )
+            else:
+                st.info("No recent trades.")
+        else:
+            st.info("No trade history available.")
+    else:
+        st.info("Trade data not available.")
+
+st.divider()
+
+# ===========================================================================
+# Section 4: Daily Decisions — Predictor Vetoes + Risk Guard
+# ===========================================================================
+
+st.markdown("### Daily Decisions")
+
+# --- Predictor Vetoes ---
+st.markdown("#### Predictor Vetoes")
+if predictions_data:
+    pred_list = list(predictions_data.values())
+    if population_data and population_data.get("population"):
+        pop_tickers = {p["ticker"] for p in population_data["population"]}
+        pred_list = [p for p in pred_list if p.get("ticker") in pop_tickers]
+
+    last_run = (predictor_metrics or {}).get("last_run_utc", "")[:10]
+    if last_run:
+        st.caption(f"Last refreshed: {last_run}")
+
+    vetoed = [p for p in pred_list if p.get("gbm_veto")]
+    if vetoed:
+        veto_df = pd.DataFrame(vetoed)[["ticker", "predicted_alpha", "combined_rank"]]
+        veto_df["predicted_alpha"] = veto_df["predicted_alpha"].apply(
+            lambda x: f"{x*100:+.2f}%" if pd.notna(x) else "—"
+        )
+        veto_df.columns = ["Ticker", "Predicted Alpha", "Rank"]
+        st.warning(f"{len(vetoed)} ticker(s) vetoed — negative predicted alpha + bottom-half rank")
+        st.dataframe(veto_df, width="stretch", hide_index=True)
+    else:
+        st.success(f"No vetoes today ({len(pred_list)} tickers predicted)")
+else:
+    st.info("Predictor data not available for today.")
+
+# --- Risk Guard ---
+st.markdown("#### Risk Guard")
+if order_book_summary:
+    ob_date = order_book_summary.get("date", "—")
+    st.caption(f"Last refreshed: {ob_date}")
+
+    approved = order_book_summary.get("entries_approved", [])
+    blocked = order_book_summary.get("entries_blocked", [])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Approved", str(len(approved)))
+    with col2:
+        st.metric("Blocked", str(len(blocked)))
+
+    if approved:
+        st.success("Approved: " + ", ".join(a["ticker"] for a in approved))
+    if blocked:
+        blocked_df = pd.DataFrame(blocked)
+        blocked_df.columns = ["Ticker", "Reason"]
+        st.dataframe(blocked_df, width="stretch", hide_index=True)
+else:
+    st.info("Order book summary not available for today.")
+
+st.divider()
+
+# ===========================================================================
+# Section 5: Research Population (Weekly)
+# ===========================================================================
+
+st.markdown("### Research Population")
+if population_data and population_data.get("population"):
+    pop = population_data["population"]
+    pop_date = population_data.get("date", "unknown")
+    regime = population_data.get("market_regime", "unknown")
+
+    regime_emoji = {"bull": "🐂", "bear": "🐻", "neutral": "➡️", "caution": "⚠️"}.get(
+        str(regime).lower(), "📊"
+    )
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Market Regime", f"{regime_emoji} {str(regime).title()}")
+    with col2:
+        st.metric("Universe Size", str(len(pop)))
+    with col3:
+        st.metric("Last Refreshed", pop_date)
+
+    pop_df = pd.DataFrame(pop)
+    display_cols = [c for c in ["ticker", "sector", "long_term_rating", "conviction", "entry_date"]
+                    if c in pop_df.columns]
+    if display_cols:
+        st.dataframe(pop_df[display_cols].sort_values("sector"), width="stretch", hide_index=True)
+else:
+    st.info("Population data not available. Research pipeline may not have run yet.")
 
 # ---------------------------------------------------------------------------
 # Footer

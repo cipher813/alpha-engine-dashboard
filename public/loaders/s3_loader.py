@@ -83,8 +83,66 @@ def download_s3_csv(bucket: str, key: str) -> pd.DataFrame | None:
 # ---------------------------------------------------------------------------
 
 
+def _research_bucket() -> str:
+    return load_config()["s3"]["research_bucket"]
+
+
+@st.cache_data(ttl=_ttl("research"))
+def download_s3_json(bucket: str, key: str) -> dict | None:
+    """Download and parse a JSON file from S3. Returns None on failure."""
+    import json
+    try:
+        client = get_s3_client()
+        response = client.get_object(Bucket=bucket, Key=key)
+        return json.loads(response["Body"].read())
+    except Exception as e:
+        code = getattr(getattr(e, "response", {}), "get", lambda *a: {})("Error", {}).get("Code", "")
+        if code != "NoSuchKey":
+            logger.error("Failed to download JSON %s/%s: %s", bucket, key, e)
+        return None
+
+
 def load_eod_pnl() -> pd.DataFrame | None:
     """Load eod_pnl.csv from the executor bucket."""
     cfg = load_config()
     key = cfg["paths"]["eod_pnl"]
     return download_s3_csv(_trades_bucket(), key)
+
+
+def load_trades_full() -> pd.DataFrame | None:
+    """Load trades_full.csv from the executor bucket."""
+    cfg = load_config()
+    key = cfg["paths"]["trades_full"]
+    return download_s3_csv(_trades_bucket(), key)
+
+
+@st.cache_data(ttl=_ttl("research"))
+def load_population_json() -> dict | None:
+    """Load population/latest.json from the research bucket."""
+    return download_s3_json(_research_bucket(), "population/latest.json")
+
+
+@st.cache_data(ttl=_ttl("trades"))
+def load_predictions_json() -> dict | None:
+    """Load predictor/predictions/latest.json. Returns dict keyed by ticker."""
+    import json
+    try:
+        client = get_s3_client()
+        response = client.get_object(Bucket=_research_bucket(), Key="predictor/predictions/latest.json")
+        data = json.loads(response["Body"].read())
+        pred_list = data.get("predictions", [])
+        return {p["ticker"]: p for p in pred_list if "ticker" in p}
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=_ttl("trades"))
+def load_order_book_summary(date_str: str) -> dict | None:
+    """Load order_book_summary.json for a given date."""
+    return download_s3_json(_research_bucket(), f"signals/{date_str}/order_book_summary.json")
+
+
+@st.cache_data(ttl=_ttl("trades"))
+def load_predictor_metrics() -> dict | None:
+    """Load predictor/metrics/latest.json."""
+    return download_s3_json(_research_bucket(), "predictor/metrics/latest.json")
