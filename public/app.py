@@ -223,36 +223,31 @@ except Exception:
 st.divider()
 
 # ===========================================================================
-# Section 3: Order Book / Trades
+# Section 3: Recent Trades
 # ===========================================================================
 
-if _is_market_open():
-    st.markdown("### Order Book (Market Open)")
-    if order_book_summary:
-        ob_date = order_book_summary.get("date", "—")
-        st.caption(f"Last refreshed: {ob_date}")
-        approved = order_book_summary.get("entries_approved", [])
-        exits = order_book_summary.get("exits", [])
-        covers = order_book_summary.get("covers", [])
-        if approved:
-            st.info("Pending entries: " + ", ".join(a["ticker"] for a in approved))
-        if exits:
-            st.info("Pending exits: " + ", ".join(e["ticker"] for e in exits))
-        if covers:
-            st.warning("Short covers: " + ", ".join(c["ticker"] for c in covers))
-        if not approved and not exits and not covers:
-            st.info("No pending orders in today's order book.")
-    else:
-        st.info("No order book data available.")
-else:
-    st.markdown("### Recent Trades")
-    if trades_df is not None and not trades_df.empty and "date" in trades_df.columns:
-        recent_date = _most_recent_trading_date(trades_df)
-        if recent_date:
+# Show trades from most recent market session, but only if that session
+# is today or after the most recent market close. Reset once market opens
+# again (new session = no trades yet).
+if trades_df is not None and not trades_df.empty and "date" in trades_df.columns:
+    recent_date = _most_recent_trading_date(trades_df)
+    if recent_date:
+        recent_dt = date.fromisoformat(recent_date)
+        # Show trades if: (a) market is closed and trades are from today or
+        # the most recent trading day, or (b) market is open and trades are
+        # from today (intraday fills)
+        show_trades = False
+        if _is_market_open():
+            show_trades = (recent_dt == date.today())
+        else:
+            show_trades = True  # market closed — show last session
+
+        if show_trades:
             trades_copy = trades_df.copy()
             trades_copy["date"] = pd.to_datetime(trades_copy["date"]).dt.date
-            recent_trades = trades_copy[trades_copy["date"] == date.fromisoformat(recent_date)]
+            recent_trades = trades_copy[trades_copy["date"] == recent_dt]
             if not recent_trades.empty:
+                st.markdown("### Recent Trades")
                 display_cols = ["ticker"]
                 for col in ["action", "signal"]:
                     if col in recent_trades.columns:
@@ -263,78 +258,13 @@ else:
                     recent_trades[display_cols].reset_index(drop=True),
                     width="stretch", hide_index=True,
                 )
-            else:
-                st.info("No recent trades.")
-        else:
-            st.info("No trade history available.")
-    else:
-        st.info("Trade data not available.")
-
-st.divider()
+                st.divider()
 
 # ===========================================================================
-# Section 4: Daily Decisions — Predictor Vetoes + Risk Guard
+# Section 4: Research Population + Pipeline Decisions (combined table)
 # ===========================================================================
 
-st.markdown("### Daily Decisions")
-
-# --- Predictor Vetoes ---
-st.markdown("#### Predictor Vetoes")
-if predictions_data:
-    pred_list = list(predictions_data.values())
-    if population_data and population_data.get("population"):
-        pop_tickers = {p["ticker"] for p in population_data["population"]}
-        pred_list = [p for p in pred_list if p.get("ticker") in pop_tickers]
-
-    last_run = (predictor_metrics or {}).get("last_run_utc", "")[:10]
-    if last_run:
-        st.caption(f"Last refreshed: {last_run}")
-
-    vetoed = [p for p in pred_list if p.get("gbm_veto")]
-    if vetoed:
-        veto_df = pd.DataFrame(vetoed)[["ticker", "predicted_alpha", "combined_rank"]]
-        veto_df["predicted_alpha"] = veto_df["predicted_alpha"].apply(
-            lambda x: f"{x*100:+.2f}%" if pd.notna(x) else "—"
-        )
-        veto_df.columns = ["Ticker", "Predicted Alpha", "Rank"]
-        st.warning(f"{len(vetoed)} ticker(s) vetoed — negative predicted alpha + bottom-half rank")
-        st.dataframe(veto_df, width="stretch", hide_index=True)
-    else:
-        st.success(f"No vetoes today ({len(pred_list)} tickers predicted)")
-else:
-    st.info("Predictor data not available for today.")
-
-# --- Risk Guard ---
-st.markdown("#### Risk Guard")
-if order_book_summary:
-    ob_date = order_book_summary.get("date", "—")
-    st.caption(f"Last refreshed: {ob_date}")
-
-    approved = order_book_summary.get("entries_approved", [])
-    blocked = order_book_summary.get("entries_blocked", [])
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Approved", str(len(approved)))
-    with col2:
-        st.metric("Blocked", str(len(blocked)))
-
-    if approved:
-        st.success("Approved: " + ", ".join(a["ticker"] for a in approved))
-    if blocked:
-        blocked_df = pd.DataFrame(blocked)
-        blocked_df.columns = ["Ticker", "Reason"]
-        st.dataframe(blocked_df, width="stretch", hide_index=True)
-else:
-    st.info("Order book summary not available for today.")
-
-st.divider()
-
-# ===========================================================================
-# Section 5: Research Population (Weekly)
-# ===========================================================================
-
-st.markdown("### Research Population")
+st.markdown("### Investment Universe")
 if population_data and population_data.get("population"):
     pop = population_data["population"]
     pop_date = population_data.get("date", "unknown")
@@ -352,9 +282,51 @@ if population_data and population_data.get("population"):
     with col3:
         st.metric("Last Refreshed", pop_date)
 
+    # Build combined table: population + predictor veto + risk guard status
     pop_df = pd.DataFrame(pop)
-    display_cols = [c for c in ["ticker", "sector", "long_term_rating", "conviction", "entry_date"]
-                    if c in pop_df.columns]
+
+    # Add predictor veto column
+    if predictions_data:
+        def _veto_label(ticker):
+            pred = predictions_data.get(ticker, {})
+            if pred.get("gbm_veto"):
+                alpha = pred.get("predicted_alpha", 0)
+                return f"VETOED ({alpha*100:+.1f}%)"
+            return "—"
+        pop_df["Predictor"] = pop_df["ticker"].apply(_veto_label)
+    else:
+        pop_df["Predictor"] = "—"
+
+    # Add risk guard column
+    if order_book_summary:
+        approved_tickers = {a["ticker"] for a in order_book_summary.get("entries_approved", [])}
+        blocked_map = {b["ticker"]: b["reason"] for b in order_book_summary.get("entries_blocked", [])}
+
+        def _risk_guard_label(ticker):
+            if ticker in approved_tickers:
+                return "Approved"
+            if ticker in blocked_map:
+                return blocked_map[ticker]
+            return "—"
+        pop_df["Risk Guard"] = pop_df["ticker"].apply(_risk_guard_label)
+    else:
+        pop_df["Risk Guard"] = "—"
+
+    # Last refreshed captions
+    captions = []
+    last_run = (predictor_metrics or {}).get("last_run_utc", "")[:10]
+    if last_run:
+        captions.append(f"Predictor: {last_run}")
+    if order_book_summary:
+        captions.append(f"Risk Guard: {order_book_summary.get('date', '—')}")
+    if captions:
+        st.caption("Last refreshed — " + " | ".join(captions))
+
+    # Display
+    display_cols = [c for c in [
+        "ticker", "sector", "conviction", "entry_date", "Predictor", "Risk Guard",
+    ] if c in pop_df.columns]
+
     if display_cols:
         st.dataframe(pop_df[display_cols].sort_values("sector"), width="stretch", hide_index=True)
 else:
