@@ -3,8 +3,11 @@ Backtester page — Last run info, param sweep heatmap, signal quality, attribut
 weight recommendations, raw report.
 """
 
+import logging
 import sys
 import os
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 import plotly.express as px
@@ -15,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from loaders.s3_loader import load_backtest_file, list_backtest_dates, load_config
 from charts.attribution_chart import make_attribution_chart
+from shared.formatters import format_pct
 
 st.set_page_config(page_title="Backtester — Alpha Engine", layout="wide")
 
@@ -23,20 +27,10 @@ st.set_page_config(page_title="Backtester — Alpha Engine", layout="wide")
 # ---------------------------------------------------------------------------
 
 
-def _fmt_pct(val, decimals=2) -> str:
-    try:
-        v = float(val)
-        if abs(v) > 2:
-            v = v / 100
-        return f"{v * 100:+.{decimals}f}%"
-    except Exception:
-        return str(val) if val is not None else "—"
-
-
 def _fmt_float(val, decimals=3) -> str:
     try:
         return f"{float(val):.{decimals}f}"
-    except Exception:
+    except (ValueError, TypeError):
         return str(val) if val is not None else "—"
 
 
@@ -147,15 +141,15 @@ if metrics:
     sim = metrics.get("simulation", metrics)  # some schemas nest under "simulation"
 
     with m_col1:
-        st.metric("Total Return", _fmt_pct(sim.get("total_return")))
+        st.metric("Total Return", format_pct(sim.get("total_return")))
     with m_col2:
         st.metric("Sharpe Ratio", _fmt_float(sim.get("sharpe_ratio", sim.get("sharpe"))))
     with m_col3:
-        st.metric("Max Drawdown", _fmt_pct(sim.get("max_drawdown")))
+        st.metric("Max Drawdown", format_pct(sim.get("max_drawdown")))
     with m_col4:
-        st.metric("Win Rate", _fmt_pct(sim.get("win_rate")))
+        st.metric("Win Rate", format_pct(sim.get("win_rate")))
     with m_col5:
-        st.metric("Avg Alpha", _fmt_pct(sim.get("avg_alpha", sim.get("mean_alpha"))))
+        st.metric("Avg Alpha", format_pct(sim.get("avg_alpha", sim.get("mean_alpha"))))
     with m_col6:
         st.metric("Num Trades", str(sim.get("num_trades", sim.get("trade_count", "—"))))
 else:
@@ -218,13 +212,13 @@ if metrics:
     if sq_metrics:
         sq_col1, sq_col2, sq_col3, sq_col4 = st.columns(4)
         with sq_col1:
-            st.metric("Accuracy 10d", _fmt_pct(sq_metrics.get("accuracy_10d")))
+            st.metric("Accuracy 10d", format_pct(sq_metrics.get("accuracy_10d")))
         with sq_col2:
-            st.metric("Accuracy 30d", _fmt_pct(sq_metrics.get("accuracy_30d")))
+            st.metric("Accuracy 30d", format_pct(sq_metrics.get("accuracy_30d")))
         with sq_col3:
-            st.metric("Avg Alpha 10d", _fmt_pct(sq_metrics.get("avg_alpha_10d")))
+            st.metric("Avg Alpha 10d", format_pct(sq_metrics.get("avg_alpha_10d")))
         with sq_col4:
-            st.metric("Avg Alpha 30d", _fmt_pct(sq_metrics.get("avg_alpha_30d")))
+            st.metric("Avg Alpha 30d", format_pct(sq_metrics.get("avg_alpha_30d")))
 
 if signal_quality_df is not None and not signal_quality_df.empty:
     st.subheader("Signal Quality Detail")
@@ -277,7 +271,8 @@ if metrics:
                     "Suggested Weight": f"{sugg_f:.1f}%" if sugg_f is not None else "—",
                     "Direction": direction,
                 })
-            except Exception:
+            except (ValueError, TypeError) as e:
+                logger.debug("Weight formatting failed for %s: %s", key, e)
                 rec_rows.append({"Sub-Score": key.capitalize(), "Current Weight": "—", "Suggested Weight": "—", "Direction": "—"})
 
         if rec_rows:

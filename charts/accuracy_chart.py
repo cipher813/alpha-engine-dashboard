@@ -116,37 +116,31 @@ def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
-    """
-    Grouped bar chart: accuracy by score bucket (60-70, 70-80, 80-90, 90+).
-    Two bars per bucket: accuracy_10d and accuracy_30d.
-    Includes Wilson CI error bars and sample size annotations.
+SCORE_BUCKET_BINS = [60, 70, 80, 90, 101]
+SCORE_BUCKET_LABELS = ["60-70", "70-80", "80-90", "90+"]
 
-    perf_df needs: composite_score (or score), beat_spy_10d, beat_spy_30d
+
+def prepare_bucket_data(perf_df: pd.DataFrame) -> pd.DataFrame | None:
+    """Aggregate accuracy metrics by score bucket with Wilson CIs.
+
+    Returns a DataFrame with columns: bucket, acc_10d, acc_30d, count,
+    ci_10d_lower, ci_10d_upper, ci_30d_lower, ci_30d_upper.
+    Returns None if the input is empty or missing required columns.
     """
     if perf_df is None or perf_df.empty:
-        fig = go.Figure()
-        fig.update_layout(title="Accuracy by Score Bucket — No data available")
-        return fig
+        return None
 
     df = perf_df.copy()
-
-    # Determine score column
     score_col = "composite_score" if "composite_score" in df.columns else "score"
     if score_col not in df.columns:
-        fig = go.Figure()
-        fig.update_layout(title="Accuracy by Score Bucket — Missing score column")
-        return fig
+        return None
 
     df[score_col] = pd.to_numeric(df[score_col], errors="coerce")
     for col in ["beat_spy_10d", "beat_spy_30d"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Assign buckets
-    bins = [60, 70, 80, 90, 101]
-    labels = ["60-70", "70-80", "80-90", "90+"]
-    df["bucket"] = pd.cut(df[score_col], bins=bins, labels=labels, right=False)
+    df["bucket"] = pd.cut(df[score_col], bins=SCORE_BUCKET_BINS, labels=SCORE_BUCKET_LABELS, right=False)
 
     grouped = df.groupby("bucket", observed=True).agg(
         acc_10d=("beat_spy_10d", "mean"),
@@ -159,7 +153,6 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
     grouped["acc_10d"] = grouped["acc_10d"] * 100
     grouped["acc_30d"] = grouped["acc_30d"] * 100
 
-    # Wilson CI for error bars
     ci_10d_lower, ci_10d_upper = [], []
     ci_30d_lower, ci_30d_upper = [], []
     for _, row in grouped.iterrows():
@@ -170,6 +163,26 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
         ci_10d_upper.append(hi10 * 100 - row["acc_10d"])
         ci_30d_lower.append(row["acc_30d"] - lo30 * 100)
         ci_30d_upper.append(hi30 * 100 - row["acc_30d"])
+
+    grouped["ci_10d_lower"] = ci_10d_lower
+    grouped["ci_10d_upper"] = ci_10d_upper
+    grouped["ci_30d_lower"] = ci_30d_lower
+    grouped["ci_30d_upper"] = ci_30d_upper
+
+    return grouped
+
+
+def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
+    """Grouped bar chart: accuracy by score bucket (60-70, 70-80, 80-90, 90+).
+
+    Two bars per bucket: accuracy_10d and accuracy_30d.
+    Includes Wilson CI error bars and sample size annotations.
+    """
+    grouped = prepare_bucket_data(perf_df)
+    if grouped is None or grouped.empty:
+        fig = go.Figure()
+        fig.update_layout(title="Accuracy by Score Bucket — No data available")
+        return fig
 
     fig = go.Figure()
 
@@ -182,7 +195,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
             text=grouped["acc_10d"].round(1).astype(str) + "%",
             textposition="outside",
             hovertemplate="Bucket: %{x}<br>10d Accuracy: %{y:.1f}%<extra></extra>",
-            error_y=dict(type="data", symmetric=False, array=ci_10d_upper, arrayminus=ci_10d_lower),
+            error_y=dict(type="data", symmetric=False, array=grouped["ci_10d_upper"].tolist(), arrayminus=grouped["ci_10d_lower"].tolist()),
         )
     )
 
@@ -195,11 +208,10 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
             text=grouped["acc_30d"].round(1).astype(str) + "%",
             textposition="outside",
             hovertemplate="Bucket: %{x}<br>30d Accuracy: %{y:.1f}%<extra></extra>",
-            error_y=dict(type="data", symmetric=False, array=ci_30d_upper, arrayminus=ci_30d_lower),
+            error_y=dict(type="data", symmetric=False, array=grouped["ci_30d_upper"].tolist(), arrayminus=grouped["ci_30d_lower"].tolist()),
         )
     )
 
-    # 50% reference line
     fig.add_hline(
         y=50,
         line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
@@ -207,8 +219,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
         annotation_position="top right",
     )
 
-    # Sample size annotations
-    for i, row in grouped.iterrows():
+    for _, row in grouped.iterrows():
         fig.add_annotation(
             x=str(row["bucket"]),
             y=-5,
@@ -219,7 +230,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
 
     fig.update_layout(
         title="Signal Accuracy by Score Bucket",
-        xaxis=dict(title="Score Bucket", categoryorder="array", categoryarray=labels),
+        xaxis=dict(title="Score Bucket", categoryorder="array", categoryarray=SCORE_BUCKET_LABELS),
         yaxis=dict(
             title="Accuracy (%)",
             ticksuffix="%",

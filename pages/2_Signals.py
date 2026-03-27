@@ -2,9 +2,12 @@
 Signals page — Full signal universe table with filters, ticker detail, sector ratings, veto status.
 """
 
+import logging
 import sys
 import os
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -20,6 +23,8 @@ from loaders.signal_loader import (
 )
 from loaders.db_loader import get_macro_snapshots, get_score_history, get_score_performance
 from loaders.s3_loader import load_predictions_json, load_predictor_params
+from shared.constants import SIGNAL_COLORS, VETO_COLOR
+from shared.formatters import regime_label
 
 st.set_page_config(page_title="Signals — Alpha Engine", layout="wide")
 
@@ -27,18 +32,9 @@ st.set_page_config(page_title="Signals — Alpha Engine", layout="wide")
 # Color coding
 # ---------------------------------------------------------------------------
 
-SIGNAL_COLORS = {
-    "ENTER": "#d4edda",
-    "EXIT": "#f8d7da",
-    "REDUCE": "#fff3cd",
-    "HOLD": "#f8f9fa",
-}
 
-VETO_COLOR = "#f5c6cb"
-
-
-def _color_signal_row(row: pd.Series) -> list[str]:
-    # If vetoed, use red-ish background
+def _render_signal_display(row: pd.Series) -> list[str]:
+    """Return per-cell CSS styles for a signal row (veto override or signal-based color)."""
     veto_val = str(row.get("Veto", ""))
     if veto_val.startswith("VETOED"):
         return [f"background-color: {VETO_COLOR}" for _ in row]
@@ -98,21 +94,18 @@ if macro_df is not None and not macro_df.empty:
         regime = macro_row.get("regime", "—")
         vix = macro_row.get("vix", "—")
         yield_10yr = macro_row.get("yield_10yr", macro_row.get("10yr_yield", "—"))
-        regime_emoji = {"bull": "🐂", "bear": "🐻", "neutral": "➡️", "caution": "⚠️"}.get(
-            str(regime).lower(), "📊"
-        )
         mc1, mc2, mc3, mc4 = st.columns(4)
         with mc1:
-            st.metric("Regime", f"{regime_emoji} {str(regime).title()}")
+            st.metric("Regime", regime_label(regime))
         with mc2:
             try:
                 st.metric("VIX", f"{float(vix):.1f}")
-            except Exception:
+            except (ValueError, TypeError):
                 st.metric("VIX", str(vix))
         with mc3:
             try:
                 st.metric("10yr Yield", f"{float(yield_10yr):.2f}%")
-            except Exception:
+            except (ValueError, TypeError):
                 st.metric("10yr Yield", str(yield_10yr))
         with mc4:
             universe = signals_data.get("universe", [])
@@ -220,7 +213,7 @@ display_cols = [
 ]
 display_df = filtered_df[display_cols].copy()
 
-styled = display_df.style.apply(_color_signal_row, axis=1)
+styled = display_df.style.apply(_render_signal_display, axis=1)
 for col in ["score", "conviction", "technical", "news", "research"]:
     if col in display_df.columns:
         styled = styled.format({col: "{:.1f}"}, na_rep="—")
@@ -254,7 +247,7 @@ if selected_ticker:
                 if pd.notna(val):
                     try:
                         sub_scores[s.capitalize()] = float(val)
-                    except Exception:
+                    except (ValueError, TypeError):
                         pass
 
             if sub_scores:

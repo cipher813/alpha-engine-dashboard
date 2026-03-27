@@ -33,7 +33,7 @@ def _beat_icon(val) -> str:
         return "⏳"
     try:
         return BEAT_ICONS.get(val, "⏳")
-    except Exception:
+    except (ValueError, TypeError):
         return "⏳"
 
 
@@ -266,7 +266,7 @@ if thesis_df is not None and not thesis_df.empty:
         if pd.notna(score) and score != "":
             try:
                 header += f" (Score: {float(score):.1f})"
-            except Exception:
+            except (ValueError, TypeError):
                 pass
 
         with st.expander(header):

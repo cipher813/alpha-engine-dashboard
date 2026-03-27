@@ -3,9 +3,12 @@ Portfolio page — NAV chart, drawdown, positions, sector allocation, P&L, summa
 """
 
 import json
+import logging
 import sys
 import os
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
@@ -20,6 +23,7 @@ from loaders.utils import safe_column
 from charts.nav_chart import make_nav_chart
 from charts.alpha_chart import make_alpha_chart
 from charts.portfolio_chart import make_sector_allocation_chart, make_sector_rotation_chart
+from shared.formatters import format_pct, format_dollar, color_return
 
 st.set_page_config(page_title="Portfolio — Alpha Engine", layout="wide")
 
@@ -49,22 +53,6 @@ def _compute_sharpe(daily_ret: pd.Series) -> float | None:
     if len(valid) < 30:
         return None
     return float(valid.mean() / valid.std() * np.sqrt(252))
-
-
-def _fmt_pct(val, decimals=2, sign=True) -> str:
-    try:
-        v = float(val) * 100
-        fmt = f"{v:+.{decimals}f}%" if sign else f"{v:.{decimals}f}%"
-        return fmt
-    except Exception:
-        return "—"
-
-
-def _fmt_dollar(val) -> str:
-    try:
-        return f"${float(val):,.2f}"
-    except Exception:
-        return "—"
 
 
 def _find_drawdown_episodes(drawdown: pd.Series, dates: pd.Series) -> list[dict]:
@@ -113,32 +101,52 @@ def _find_drawdown_episodes(drawdown: pd.Series, dates: pd.Series) -> list[dict]
     return episodes
 
 
-@st.cache_data(ttl=900)
+from shared.constants import DEFAULT_CACHE_TTL_SECONDS
+
+
+def _parse_snapshot_row(row_date: str, snapshot_json: str) -> list[dict]:
+    """Parse a single positions_snapshot JSON string into flat sector/value records.
+
+    Returns an empty list if parsing fails.
+    """
+    try:
+        positions = json.loads(str(snapshot_json))
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.debug("Skipping unparseable snapshot: %s", e)
+        return []
+
+    if isinstance(positions, dict):
+        positions = [positions]
+    if not isinstance(positions, list):
+        return []
+
+    records = []
+    for pos in positions:
+        try:
+            market_value = float(pos.get("market_value", 0) or 0)
+        except (ValueError, TypeError):
+            market_value = 0.0
+        records.append({
+            "date": row_date,
+            "sector": pos.get("sector", "Unknown"),
+            "market_value": market_value,
+        })
+    return records
+
+
+@st.cache_data(ttl=DEFAULT_CACHE_TTL_SECONDS)
 def _parse_all_snapshots(eod_csv_bytes: bytes) -> list[dict]:
     """Parse positions_snapshot JSON from every eod_pnl row into flat records."""
     eod_df = pd.read_csv(pd.io.common.BytesIO(eod_csv_bytes))
     if "positions_snapshot" not in eod_df.columns or "date" not in eod_df.columns:
         return []
 
-    records = []
+    records: list[dict] = []
     for _, row in eod_df.iterrows():
         snap_raw = row.get("positions_snapshot")
         if pd.isna(snap_raw) or not snap_raw:
             continue
-        try:
-            positions = json.loads(str(snap_raw))
-            if isinstance(positions, dict):
-                positions = [positions]
-            for pos in positions:
-                sector = pos.get("sector", "Unknown")
-                mv = pos.get("market_value", 0)
-                records.append({
-                    "date": row["date"],
-                    "sector": sector,
-                    "market_value": float(mv) if mv else 0,
-                })
-        except Exception:
-            continue
+        records.extend(_parse_snapshot_row(row["date"], snap_raw))
     return records
 
 
@@ -281,7 +289,8 @@ if "positions_snapshot" in eod_df.columns:
                 positions_df = pd.DataFrame(positions_data)
             elif isinstance(positions_data, dict):
                 positions_df = pd.DataFrame([positions_data])
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to parse positions snapshot: %s", e)
         positions_df = None
 
 if positions_df is not None and not positions_df.empty:
@@ -347,7 +356,7 @@ if positions_df is not None and not positions_df.empty:
         pnl_c1, pnl_c2, pnl_c3, pnl_c4 = st.columns(4)
         with pnl_c1:
             color = "normal" if total_pnl >= 0 else "inverse"
-            st.metric("Total Unrealized P&L", _fmt_dollar(total_pnl))
+            st.metric("Total Unrealized P&L", format_dollar(total_pnl))
         with pnl_c2:
             st.metric("Positions", str(pos_count))
         with pnl_c3:
@@ -370,21 +379,9 @@ if positions_df is not None and not positions_df.empty:
     if display_cols:
         display_pos = positions_df[display_cols].copy()
 
-        # Conditional formatting for return_pct
-        def _color_return(val):
-            try:
-                v = float(val)
-                if v > 0:
-                    return "color: #155724; background-color: #d4edda"
-                elif v < 0:
-                    return "color: #721c24; background-color: #f8d7da"
-            except (ValueError, TypeError):
-                pass
-            return ""
-
         styled = display_pos.style
         if "return_pct" in display_pos.columns:
-            styled = styled.map(_color_return, subset=["return_pct"])
+            styled = styled.map(color_return, subset=["return_pct"])
             styled = styled.format({"return_pct": "{:.1%}"}, na_rep="—")
         if "unrealized_pnl" in display_pos.columns:
             styled = styled.format({"unrealized_pnl": "${:,.2f}"}, na_rep="—")
@@ -460,7 +457,8 @@ if positions_df is not None and not positions_df.empty:
                 st.plotly_chart(rotation_fig, use_container_width=True)
             else:
                 st.info("No position snapshots available for sector rotation chart.")
-        except Exception:
+        except Exception as e:
+            logger.warning("Sector rotation chart failed: %s", e)
             st.info("Could not parse position snapshots for rotation chart.")
 
 else:
@@ -485,7 +483,7 @@ stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
 stat_col5, stat_col6, stat_col7, stat_col8 = st.columns(4)
 
 with stat_col1:
-    st.metric("Total Return", _fmt_pct(total_return))
+    st.metric("Total Return", format_pct(total_return))
 
 with stat_col2:
     if sharpe is not None:
@@ -494,13 +492,13 @@ with stat_col2:
         st.metric("Sharpe Ratio", f"Need ≥30 days ({len(daily_ret)} available)")
 
 with stat_col3:
-    st.metric("Max Drawdown", _fmt_pct(max_drawdown))
+    st.metric("Max Drawdown", format_pct(max_drawdown))
 
 with stat_col4:
-    st.metric("Best Day", _fmt_pct(best_day))
+    st.metric("Best Day", format_pct(best_day))
 
 with stat_col5:
-    st.metric("Worst Day", _fmt_pct(worst_day))
+    st.metric("Worst Day", format_pct(worst_day))
 
 with stat_col6:
     st.metric("Days Positive", f"{days_positive}")
@@ -510,6 +508,6 @@ with stat_col7:
 
 with stat_col8:
     if avg_daily_alpha is not None:
-        st.metric("Avg Daily Alpha", _fmt_pct(avg_daily_alpha))
+        st.metric("Avg Daily Alpha", format_pct(avg_daily_alpha))
     else:
         st.metric("Avg Daily Alpha", "—")

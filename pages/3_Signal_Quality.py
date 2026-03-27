@@ -121,7 +121,7 @@ if current_weights:
             if v <= 1.0:
                 v = v * 100
             return f"{v:.1f}%"
-        except Exception:
+        except (ValueError, TypeError):
             return str(val)
 
     w_col1, w_col2, w_col3 = st.columns(3)

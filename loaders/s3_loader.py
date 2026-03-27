@@ -2,19 +2,28 @@
 S3 data loading utilities for the Alpha Engine Dashboard.
 All data-fetching functions use @st.cache_data with TTLs from config.yaml.
 Credentials come from the EC2 IAM role (no explicit creds needed).
+
+Naming conventions:
+  - load_*()  — fetch data from S3 and return parsed objects
+  - get_*()   — return local/computed values (no S3 I/O)
+  - _fetch_*  — internal helpers that combine S3 I/O + parsing
 """
 
+import functools
 import io
 import json
 import logging
 import os
 import re
 from datetime import datetime
+from typing import Any
 
 import boto3
 import pandas as pd
 import streamlit as st
 import yaml
+
+from shared.constants import DEFAULT_CACHE_TTL_SECONDS, ISO_DATE_PATTERN
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +35,7 @@ _recent_s3_errors: list[dict] = []
 _MAX_S3_ERRORS = 50
 
 
-def _record_s3_error(bucket: str, key: str, error_type: str, message: str):
+def _record_s3_error(bucket: str, key: str, error_type: str, message: str) -> None:
     """Append an error record (capped at _MAX_S3_ERRORS)."""
     _recent_s3_errors.append({
         "timestamp": datetime.utcnow().isoformat(),
@@ -47,25 +56,36 @@ def get_recent_s3_errors() -> list[dict]:
 # Config loading (module-level, cached forever via lru_cache-style singleton)
 # ---------------------------------------------------------------------------
 
-_CONFIG_PATH = os.path.join(
+_DEFAULT_CONFIG_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.yaml"
 )
 
 _config_cache: dict | None = None
+_config_mtime: float = 0.0
 
 
 def load_config() -> dict:
-    """Load and return the parsed config.yaml. Cached in process memory."""
-    global _config_cache
-    if _config_cache is None:
-        with open(_CONFIG_PATH) as f:
+    """Load and return the parsed config.yaml.
+
+    Honors DASHBOARD_CONFIG_PATH env var for overriding the default path.
+    Automatically reloads if the file has been modified since last read.
+    """
+    global _config_cache, _config_mtime
+    config_path = os.environ.get("DASHBOARD_CONFIG_PATH", _DEFAULT_CONFIG_PATH)
+    try:
+        current_mtime = os.path.getmtime(config_path)
+    except OSError:
+        current_mtime = 0.0
+    if _config_cache is None or current_mtime > _config_mtime:
+        with open(config_path) as f:
             _config_cache = yaml.safe_load(f)
+        _config_mtime = current_mtime
     return _config_cache
 
 
 # Convenience accessors used by cached functions below
 def _ttl(key: str) -> int:
-    return load_config()["cache_ttl"].get(key, 900)
+    return load_config()["cache_ttl"].get(key, DEFAULT_CACHE_TTL_SECONDS)
 
 
 def _research_bucket() -> str:
@@ -81,7 +101,7 @@ def _trades_bucket() -> str:
 # ---------------------------------------------------------------------------
 
 
-def get_s3_client():
+def get_s3_client() -> Any:
     """Return a boto3 S3 client. Uses EC2 IAM role automatically."""
     return boto3.client("s3")
 
@@ -91,7 +111,7 @@ def get_s3_client():
 # ---------------------------------------------------------------------------
 
 
-def _s3_get_object(bucket: str, key: str):
+def _s3_get_object(bucket: str, key: str) -> bytes | None:
     """Raw GetObject call. Returns the response body bytes or None on error."""
     try:
         client = get_s3_client()
@@ -114,6 +134,43 @@ def _s3_get_object(bucket: str, key: str):
         return None
 
 
+def _fetch_s3_json(bucket: str, key: str) -> dict | list | None:
+    """Fetch an S3 object and parse as JSON with unified error tracking.
+
+    Returns None on missing key or any failure (errors are logged and recorded).
+    Delegates S3 I/O to _s3_get_object so error handling is not duplicated.
+    """
+    raw = _s3_get_object(bucket, key)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning("JSON parse failed for %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, "JSONParseError", str(e))
+        return None
+
+
+def with_s3_error_tracking(fallback: Any = None):
+    """Decorator that wraps a function with S3 error logging and tracking.
+
+    On any exception, logs the error, records it via _record_s3_error
+    (using the function name as context), and returns *fallback*.
+    """
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                context = fn.__name__
+                logger.error("%s failed: %s", context, e, exc_info=True)
+                _record_s3_error("unknown", context, type(e).__name__, str(e))
+                return fallback
+        return wrapper
+    return decorator
+
+
 # ---------------------------------------------------------------------------
 # Cached public API
 # ---------------------------------------------------------------------------
@@ -128,21 +185,19 @@ def list_s3_prefixes(bucket: str, prefix: str) -> list[str]:
     try:
         client = get_s3_client()
         paginator = client.get_paginator("list_objects_v2")
-        date_pattern = re.compile(r"\d{4}-\d{2}-\d{2}")
         prefixes: set[str] = set()
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
             for cp in page.get("CommonPrefixes", []):
                 p = cp.get("Prefix", "")
-                # Extract the date-like segment
                 stripped = p[len(prefix):].strip("/")
-                if date_pattern.match(stripped):
+                if ISO_DATE_PATTERN.match(stripped):
                     prefixes.add(stripped)
             # Also handle keys directly (no trailing slash)
             for obj in page.get("Contents", []):
                 k = obj.get("Key", "")
                 rel = k[len(prefix):]
                 seg = rel.split("/")[0]
-                if date_pattern.match(seg):
+                if ISO_DATE_PATTERN.match(seg):
                     prefixes.add(seg)
         return sorted(prefixes)
     except Exception as e:
@@ -154,33 +209,15 @@ def list_s3_prefixes(bucket: str, prefix: str) -> list[str]:
 @st.cache_data(ttl=_ttl("signals"))
 def download_s3_json(bucket: str, key: str) -> dict | list | None:
     """Download and parse a JSON file from S3. Returns None on failure."""
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=bucket, Key=key)
-        raw = response["Body"].read()
-        return json.loads(raw)
-    except client.exceptions.NoSuchKey:
-        return None
-    except Exception as e:
-        logger.error("Failed to download JSON %s/%s: %s", bucket, key, e)
-        _record_s3_error(bucket, key, type(e).__name__, str(e))
-        return None
+    return _fetch_s3_json(bucket, key)
 
 
 @st.cache_data(ttl=_ttl("trades"))
 def download_s3_csv(bucket: str, key: str) -> pd.DataFrame | None:
     """Download a CSV from S3 and return a DataFrame. Returns None on failure."""
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=bucket, Key=key)
-        raw = response["Body"].read()
-    except client.exceptions.NoSuchKey:
+    raw = _s3_get_object(bucket, key)
+    if raw is None:
         return None
-    except Exception as e:
-        logger.error("Failed to download CSV %s/%s: %s", bucket, key, e)
-        _record_s3_error(bucket, key, type(e).__name__, str(e))
-        return None
-
     try:
         return pd.read_csv(io.BytesIO(raw))
     except Exception as e:
@@ -192,28 +229,23 @@ def download_s3_csv(bucket: str, key: str) -> pd.DataFrame | None:
 @st.cache_data(ttl=_ttl("research"))
 def download_s3_text(bucket: str, key: str) -> str | None:
     """Download a text file from S3 and return its content. Returns None on failure."""
+    raw = _s3_get_object(bucket, key)
+    if raw is None:
+        return None
     try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=bucket, Key=key)
-        return response["Body"].read().decode("utf-8")
-    except client.exceptions.NoSuchKey:
-        return None
-    except Exception as e:
-        logger.error("Failed to download text %s/%s: %s", bucket, key, e)
-        _record_s3_error(bucket, key, type(e).__name__, str(e))
+        return raw.decode("utf-8")
+    except (UnicodeDecodeError, AttributeError) as e:
+        logger.warning("Text decode failed for %s/%s: %s", bucket, key, e)
+        _record_s3_error(bucket, key, "DecodeError", str(e))
         return None
 
 
+@with_s3_error_tracking(fallback=False)
 def download_s3_binary(bucket: str, key: str, local_path: str) -> bool:
     """Download a binary file from S3 to *local_path*. Returns True on success."""
-    try:
-        client = get_s3_client()
-        client.download_file(bucket, key, local_path)
-        return True
-    except Exception as e:
-        logger.error("Failed to download binary %s/%s: %s", bucket, key, e)
-        _record_s3_error(bucket, key, type(e).__name__, str(e))
-        return False
+    client = get_s3_client()
+    client.download_file(bucket, key, local_path)
+    return True
 
 
 @st.cache_data(ttl=_ttl("signals"))
@@ -235,8 +267,29 @@ def check_key_exists(bucket: str, key: str) -> bool:
         client = get_s3_client()
         client.head_object(Bucket=bucket, Key=key)
         return True
-    except Exception:
+    except Exception as e:
+        logger.debug("check_key_exists %s/%s: %s", bucket, key, e)
         return False
+
+
+# ---------------------------------------------------------------------------
+# S3 path builders (centralize hardcoded prefixes)
+# ---------------------------------------------------------------------------
+
+_PREDICTOR_PREDICTIONS_PREFIX = "predictor/predictions"
+_PREDICTOR_METRICS_PREFIX = "predictor/metrics"
+_CONFIG_PREFIX = "config"
+_POPULATION_KEY = "population/latest.json"
+
+
+def _predictions_key(date_str: str | None = None) -> str:
+    if date_str:
+        return f"{_PREDICTOR_PREDICTIONS_PREFIX}/{date_str}.json"
+    return f"{_PREDICTOR_PREDICTIONS_PREFIX}/latest.json"
+
+
+def _order_book_key(date_str: str) -> str:
+    return f"signals/{date_str}/order_book_summary.json"
 
 
 # ---------------------------------------------------------------------------
@@ -298,9 +351,9 @@ def list_backtest_dates() -> list[str]:
     return sorted(dates, reverse=True)
 
 
-def load_backtest_file(date_str: str, filename: str):
-    """
-    Load a file from backtest/{date}/{filename} in the research bucket.
+def load_backtest_file(date_str: str, filename: str) -> dict | list | pd.DataFrame | str | None:
+    """Load a file from backtest/{date}/{filename} in the research bucket.
+
     Supports .json, .csv, .md extensions.
     """
     cfg = load_config()
@@ -319,68 +372,30 @@ def load_backtest_file(date_str: str, filename: str):
 
 def load_predictions_json(date_str: str | None = None) -> dict:
     """Load predictor predictions from S3. Returns {} on any failure."""
-    if date_str:
-        key = f"predictor/predictions/{date_str}.json"
-    else:
-        key = "predictor/predictions/latest.json"
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=_research_bucket(), Key=key)
-        data = json.loads(response["Body"].read())
-        pred_list = data.get("predictions", [])
-        return {p["ticker"]: p for p in pred_list if "ticker" in p}
-    except client.exceptions.NoSuchKey:
+    key = _predictions_key(date_str)
+    data = _fetch_s3_json(_research_bucket(), key)
+    if not isinstance(data, dict):
         return {}
-    except Exception as e:
-        logger.error("Failed to load predictions %s: %s", key, e)
-        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
-        return {}
+    pred_list = data.get("predictions", [])
+    return {p["ticker"]: p for p in pred_list if "ticker" in p}
 
 
 def load_predictor_metrics() -> dict:
     """Load predictor metrics from S3. Returns {} on any failure."""
-    key = "predictor/metrics/latest.json"
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=_research_bucket(), Key=key)
-        return json.loads(response["Body"].read())
-    except client.exceptions.NoSuchKey:
-        return {}
-    except Exception as e:
-        logger.error("Failed to load predictor metrics: %s", e)
-        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
-        return {}
+    data = _fetch_s3_json(_research_bucket(), f"{_PREDICTOR_METRICS_PREFIX}/latest.json")
+    return data if isinstance(data, dict) else {}
 
 
 def load_mode_history() -> list[dict]:
     """Load predictor mode selection history from S3. Returns [] on failure."""
-    key = "predictor/metrics/mode_history.json"
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=_research_bucket(), Key=key)
-        data = json.loads(response["Body"].read())
-        return data if isinstance(data, list) else []
-    except client.exceptions.NoSuchKey:
-        return []
-    except Exception as e:
-        logger.error("Failed to load mode history: %s", e)
-        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
-        return []
+    data = _fetch_s3_json(_research_bucket(), f"{_PREDICTOR_METRICS_PREFIX}/mode_history.json")
+    return data if isinstance(data, list) else []
 
 
 def load_predictor_params() -> dict:
     """Load predictor_params.json from S3 config. Returns {} on any failure."""
-    key = "config/predictor_params.json"
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=_research_bucket(), Key=key)
-        return json.loads(response["Body"].read())
-    except client.exceptions.NoSuchKey:
-        return {}
-    except Exception as e:
-        logger.error("Failed to load predictor params: %s", e)
-        _record_s3_error(_research_bucket(), key, type(e).__name__, str(e))
-        return {}
+    data = _fetch_s3_json(_research_bucket(), f"{_CONFIG_PREFIX}/predictor_params.json")
+    return data if isinstance(data, dict) else {}
 
 
 @st.cache_data(ttl=_ttl("research"))
@@ -390,7 +405,7 @@ def load_population_json() -> dict | None:
     Returns the full dict with 'population', 'date', 'market_regime', etc.
     Returns None if the file does not exist.
     """
-    return download_s3_json(_research_bucket(), "population/latest.json")
+    return download_s3_json(_research_bucket(), _POPULATION_KEY)
 
 
 @st.cache_data(ttl=_ttl("signals"))
@@ -399,5 +414,4 @@ def load_order_book_summary(date_str: str) -> dict | None:
 
     Returns None if the file does not exist (backward compatible).
     """
-    key = f"signals/{date_str}/order_book_summary.json"
-    return download_s3_json(_research_bucket(), key)
+    return download_s3_json(_research_bucket(), _order_book_key(date_str))
