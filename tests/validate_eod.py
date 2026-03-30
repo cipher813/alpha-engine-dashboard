@@ -79,6 +79,35 @@ def validate(df: pd.DataFrame) -> list[str]:
         if missing_spy > 0:
             errors.append(f"{missing_spy} rows with missing spy_close")
 
+    # 7. NAV-based vs chain-based cumulative portfolio return divergence
+    nav = pd.to_numeric(df["portfolio_nav"], errors="coerce")
+    if nav.notna().all() and len(df) > 1:
+        nav_cum = nav.iloc[-1] / nav.iloc[0] - 1
+        # daily_return_pct is always in percentage units (e.g. 0.5 = 0.5%)
+        daily_ret = pd.to_numeric(df["daily_return_pct"], errors="coerce").fillna(0.0) / 100.0
+        chain_cum = (1 + daily_ret.iloc[1:]).prod() - 1  # skip day 0
+        delta_bps = abs(nav_cum - chain_cum) * 10_000
+        if delta_bps > 50:
+            errors.append(
+                f"Portfolio cumulative divergence: NAV-based={nav_cum:.4f} "
+                f"chain-based={chain_cum:.4f} (delta={delta_bps:.0f} bps)"
+            )
+
+    # 8. SPY cumulative: spy_close-based vs chain-based
+    if "spy_close" in df.columns:
+        spy_close = pd.to_numeric(df["spy_close"], errors="coerce")
+        if spy_close.notna().sum() >= 2:
+            valid = spy_close.dropna()
+            spy_cum_direct = valid.iloc[-1] / valid.iloc[0] - 1
+            spy_daily = pd.to_numeric(df["spy_return_pct"], errors="coerce").fillna(0.0) / 100.0
+            spy_cum_chain = (1 + spy_daily.iloc[1:]).prod() - 1
+            spy_delta_bps = abs(spy_cum_direct - spy_cum_chain) * 10_000
+            if spy_delta_bps > 50:
+                errors.append(
+                    f"SPY cumulative divergence: close-based={spy_cum_direct:.4f} "
+                    f"chain-based={spy_cum_chain:.4f} (delta={spy_delta_bps:.0f} bps)"
+                )
+
     return errors
 
 
@@ -95,7 +124,7 @@ def main():
         import boto3
         import io
         s3 = boto3.client("s3")
-        obj = s3.get_object(Bucket="alpha-engine-executor", Key="trades/eod_pnl.csv")
+        obj = s3.get_object(Bucket="alpha-engine-research", Key="trades/eod_pnl.csv")
         df = pd.read_csv(io.BytesIO(obj["Body"].read()))
 
     print(f"Rows: {len(df)}")

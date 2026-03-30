@@ -398,9 +398,23 @@ def _render_performance(eod_df: pd.DataFrame | None) -> None:
     if alphas.abs().max() > 2:
         alphas = alphas / 100
 
-    cumulative_ret = (1 + returns).prod() - 1
+    # Direct NAV-based cumulative return (avoids daily chaining errors)
+    nav_series = pd.to_numeric(eod_copy.get("portfolio_nav"), errors="coerce")
+    if nav_series.notna().sum() >= 2:
+        cumulative_ret = nav_series.iloc[-1] / nav_series.iloc[0] - 1
+    else:
+        cumulative_ret = (1 + returns).prod() - 1
+
     sharpe = (returns.mean() / returns.std() * (252 ** 0.5)) if len(returns) >= 30 and returns.std() > 0 else None
     max_dd = (returns.cumsum() - returns.cumsum().cummax()).min()
+
+    # Direct spy_close-based cumulative alpha
+    spy_close = pd.to_numeric(eod_copy.get("spy_close"), errors="coerce")
+    if spy_close.notna().sum() >= 2:
+        spy_cum = spy_close.dropna().iloc[-1] / spy_close.dropna().iloc[0] - 1
+        cumulative_alpha = cumulative_ret - spy_cum
+    else:
+        cumulative_alpha = alphas.sum()
 
     sc1, sc2, sc3, sc4 = st.columns(4)
     with sc1:
@@ -410,7 +424,7 @@ def _render_performance(eod_df: pd.DataFrame | None) -> None:
     with sc3:
         st.metric("Max Drawdown", f"{max_dd*100:.1f}%" if pd.notna(max_dd) else "—")
     with sc4:
-        st.metric("Cumulative Alpha", f"{alphas.sum()*100:+.1f}%" if not alphas.empty else "—")
+        st.metric("Cumulative Alpha", f"{cumulative_alpha*100:+.1f}%" if pd.notna(cumulative_alpha) else "—")
 
 
 def _render_market_context(macro_df: pd.DataFrame | None) -> None:

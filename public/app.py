@@ -115,16 +115,24 @@ eod_active = eod.iloc[1:].reset_index(drop=True) if len(eod) > 1 else eod
 latest = eod.iloc[-1]
 nav = latest["portfolio_nav"]
 
-# Cumulative returns
-eod_active["port_cum"] = (1 + eod_active["port_ret"]).cumprod() - 1
-eod_active["spy_cum"] = (1 + eod_active["spy_ret"]).cumprod() - 1
-cumulative_alpha_bps = (eod_active["port_cum"].iloc[-1] - eod_active["spy_cum"].iloc[-1]) * 10_000 if len(eod_active) > 0 else 0
+# Cumulative returns — direct from NAV and spy_close (no daily chaining)
+nav_0 = eod["portfolio_nav"].iloc[0]
+eod["port_cum"] = eod["portfolio_nav"] / nav_0 - 1
 
-eod["port_cum"] = 0.0
-eod["spy_cum"] = 0.0
-if len(eod) > 1:
-    eod.loc[eod.index[1:], "port_cum"] = eod_active["port_cum"].values
-    eod.loc[eod.index[1:], "spy_cum"] = eod_active["spy_cum"].values
+spy_close = pd.to_numeric(eod.get("spy_close"), errors="coerce")
+if spy_close.notna().sum() >= 2:
+    spy_0 = spy_close.dropna().iloc[0]
+    eod["spy_cum"] = spy_close / spy_0 - 1
+    # Forward-fill for any rows missing spy_close
+    eod["spy_cum"] = eod["spy_cum"].ffill().fillna(0.0)
+else:
+    # Fallback to cumprod if spy_close is entirely missing
+    eod["spy_cum"] = 0.0
+    if len(eod_active) > 0:
+        eod_active["spy_cum"] = (1 + eod_active["spy_ret"]).cumprod() - 1
+        eod.loc[eod.index[1:], "spy_cum"] = eod_active["spy_cum"].values
+
+cumulative_alpha_bps = (eod["port_cum"].iloc[-1] - eod["spy_cum"].iloc[-1]) * 10_000 if len(eod) > 0 else 0
 
 # Alpha days
 up_days = (eod_active["daily_alpha"] > 0).sum()
