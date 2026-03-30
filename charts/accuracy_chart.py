@@ -452,8 +452,8 @@ def make_regime_alpha_chart(eod_df: pd.DataFrame, macro_df: pd.DataFrame) -> go.
     macro["date"] = pd.to_datetime(macro["date"]).dt.date.astype(str)
 
     eod["daily_alpha_pct"] = pd.to_numeric(eod["daily_alpha_pct"], errors="coerce")
-    # Normalize: if values look like percentages (abs mean > 1), convert to decimal
-    if eod["daily_alpha_pct"].abs().mean() > 1.0:
+    # Normalize: if values look like percentages (abs max > 1), convert to decimal
+    if len(eod) > 0 and eod["daily_alpha_pct"].abs().max() > 1.0:
         eod["daily_alpha_pct"] = eod["daily_alpha_pct"] / 100.0
 
     regime_col = "regime" if "regime" in macro.columns else "market_regime" if "market_regime" in macro.columns else None

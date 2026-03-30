@@ -33,8 +33,13 @@ st.set_page_config(page_title="Portfolio — Alpha Engine", layout="wide")
 
 
 def _to_decimal(series: pd.Series) -> pd.Series:
+    """Convert percent-scale series to decimal (e.g., 2.5 → 0.025).
+
+    Uses max absolute value (not mean) to detect scale — more robust than
+    mean-based detection when most returns are near zero.
+    """
     s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-    if s.abs().mean() > 1.0:
+    if len(s) > 0 and s.abs().max() > 1.0:
         s = s / 100.0
     return s
 
@@ -169,7 +174,12 @@ with st.spinner("Loading portfolio data..."):
     signals_data = load_signals_json(today)
 
 if eod_df is None or eod_df.empty:
-    st.warning("Portfolio data (eod_pnl.csv) not available yet.")
+    from loaders.s3_loader import get_recent_s3_errors
+    recent = get_recent_s3_errors()
+    if recent:
+        st.error(f"Portfolio data unavailable — last S3 error: {recent[-1].get('error_type', '?')}: {recent[-1].get('message', '')[:100]}")
+    else:
+        st.warning("Portfolio data (eod_pnl.csv) not available yet — EOD reconciliation may not have run.")
     st.stop()
 
 eod_df["date"] = pd.to_datetime(eod_df["date"])

@@ -106,6 +106,8 @@ def make_sector_rotation_chart(snapshot_records: list[dict], time_range: str = "
     daily = df.groupby(["date", "sector"])["market_value"].sum().reset_index()
     daily_total = daily.groupby("date")["market_value"].sum().rename("total")
     daily = daily.merge(daily_total, on="date")
+    # Drop dates with zero total to avoid division by zero (empty portfolio days)
+    daily = daily[daily["total"] > 0].copy()
     daily["pct"] = daily["market_value"] / daily["total"] * 100
 
     # Pivot for stacked area

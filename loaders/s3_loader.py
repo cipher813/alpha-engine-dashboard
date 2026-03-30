@@ -77,9 +77,28 @@ def load_config() -> dict:
     except OSError:
         current_mtime = 0.0
     if _config_cache is None or current_mtime > _config_mtime:
-        with open(config_path) as f:
-            _config_cache = yaml.safe_load(f)
-        _config_mtime = current_mtime
+        try:
+            with open(config_path) as f:
+                _config_cache = yaml.safe_load(f)
+            _config_mtime = current_mtime
+        except FileNotFoundError:
+            logger.error(
+                "Config file not found: %s — using defaults. "
+                "Copy config.yaml.example to config.yaml to configure.",
+                config_path,
+            )
+            _config_cache = {
+                "s3": {"research_bucket": "alpha-engine-research"},
+                "paths": {"research_db": "research.db"},
+                "cache_ttl": {},
+            }
+        except yaml.YAMLError as e:
+            logger.error("Config file parse error: %s — using defaults", e)
+            _config_cache = {
+                "s3": {"research_bucket": "alpha-engine-research"},
+                "paths": {"research_db": "research.db"},
+                "cache_ttl": {},
+            }
     return _config_cache
 
 
@@ -111,27 +130,71 @@ def get_s3_client() -> Any:
 # ---------------------------------------------------------------------------
 
 
+_S3_MAX_RETRIES = 3
+_S3_RETRY_BACKOFF_BASE = 1.0  # seconds
+
+
 def _s3_get_object(bucket: str, key: str) -> bytes | None:
-    """Raw GetObject call. Returns the response body bytes or None on error."""
-    try:
-        client = get_s3_client()
-        response = client.get_object(Bucket=bucket, Key=key)
-        return response["Body"].read()
-    except client.exceptions.NoSuchKey:
-        return None
-    except client.exceptions.ClientError as e:
-        error_code = e.response.get("Error", {}).get("Code", "Unknown")
-        logger.error("S3 ClientError for %s/%s: %s", bucket, key, error_code)
-        _record_s3_error(bucket, key, "ClientError", str(e))
-        return None
-    except (ConnectionError, TimeoutError) as e:
-        logger.warning("S3 connection error for %s/%s: %s", bucket, key, e)
-        _record_s3_error(bucket, key, type(e).__name__, str(e))
-        return None
-    except Exception as e:
-        logger.error("S3 unexpected error for %s/%s", bucket, key, exc_info=True)
-        _record_s3_error(bucket, key, type(e).__name__, str(e))
-        return None
+    """Raw GetObject call with retry for transient errors.
+
+    Returns the response body bytes or None on error.
+    Retries on ConnectionError, TimeoutError, and throttling (503/SlowDown).
+    Does NOT retry on NoSuchKey or AccessDenied (non-transient).
+    """
+    import time as _time
+
+    client = get_s3_client()
+    last_error = None
+
+    for attempt in range(1, _S3_MAX_RETRIES + 1):
+        try:
+            response = client.get_object(Bucket=bucket, Key=key)
+            return response["Body"].read()
+        except client.exceptions.NoSuchKey:
+            return None  # not an error — key simply doesn't exist
+        except client.exceptions.ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "Unknown")
+            # Retry on throttling; fail fast on permission/not-found errors
+            if error_code in ("SlowDown", "ServiceUnavailable", "InternalError"):
+                last_error = e
+                if attempt < _S3_MAX_RETRIES:
+                    wait = _S3_RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+                    logger.warning(
+                        "S3 throttled for %s/%s (attempt %d/%d, %s) — retrying in %.1fs",
+                        bucket, key, attempt, _S3_MAX_RETRIES, error_code, wait,
+                    )
+                    _time.sleep(wait)
+                    continue
+            logger.error(
+                "S3 ClientError for %s/%s: %s (non-retryable)", bucket, key, error_code,
+            )
+            _record_s3_error(bucket, key, f"ClientError:{error_code}", str(e))
+            return None
+        except (ConnectionError, TimeoutError) as e:
+            last_error = e
+            if attempt < _S3_MAX_RETRIES:
+                wait = _S3_RETRY_BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.warning(
+                    "S3 %s for %s/%s (attempt %d/%d) — retrying in %.1fs",
+                    type(e).__name__, bucket, key, attempt, _S3_MAX_RETRIES, wait,
+                )
+                _time.sleep(wait)
+                continue
+            logger.error(
+                "S3 %s for %s/%s after %d attempts",
+                type(e).__name__, bucket, key, _S3_MAX_RETRIES,
+            )
+            _record_s3_error(bucket, key, type(e).__name__, str(e))
+            return None
+        except Exception as e:
+            logger.error("S3 unexpected error for %s/%s", bucket, key, exc_info=True)
+            _record_s3_error(bucket, key, type(e).__name__, str(e))
+            return None
+
+    # Exhausted retries
+    logger.error("S3 request for %s/%s failed after %d retries: %s", bucket, key, _S3_MAX_RETRIES, last_error)
+    _record_s3_error(bucket, key, "RetriesExhausted", str(last_error))
+    return None
 
 
 def _fetch_s3_json(bucket: str, key: str) -> dict | list | None:
@@ -370,6 +433,7 @@ def load_backtest_file(date_str: str, filename: str) -> dict | list | pd.DataFra
         return download_s3_text(_research_bucket(), key)
 
 
+@st.cache_data(ttl=_ttl("signals"), show_spinner=False)
 def load_predictions_json(date_str: str | None = None) -> dict:
     """Load predictor predictions from S3. Returns {} on any failure."""
     key = _predictions_key(date_str)

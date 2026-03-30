@@ -54,7 +54,12 @@ available_dates = get_available_signal_dates()
 today_str = date.today().isoformat()
 
 if not available_dates:
-    st.warning("No signal dates available in S3.")
+    from loaders.s3_loader import get_recent_s3_errors
+    recent = get_recent_s3_errors()
+    if recent:
+        st.error(f"No signal dates — S3 error: {recent[-1].get('error_type', '?')}: {recent[-1].get('message', '')[:100]}")
+    else:
+        st.warning("No signal dates available in S3 — research pipeline may not have run yet.")
     st.stop()
 
 default_idx = 0

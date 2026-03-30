@@ -23,9 +23,9 @@ def make_alpha_chart(eod_df: pd.DataFrame) -> go.Figure:
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
 
-    # Parse alpha values — detect decimal vs percent scale
+    # Parse alpha values — detect decimal vs percent scale (max-based, not mean)
     alpha = pd.to_numeric(df["daily_alpha_pct"], errors="coerce").fillna(0.0)
-    if alpha.abs().mean() > 1.0:
+    if len(alpha) > 0 and alpha.abs().max() > 1.0:
         alpha = alpha / 100.0
 
     alpha_pct = alpha * 100  # display as percent

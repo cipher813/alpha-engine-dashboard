@@ -48,7 +48,12 @@ with st.spinner("Loading trade data..."):
     perf_df = get_score_performance()
 
 if trades_df is None or trades_df.empty:
-    st.warning("trades_full.csv not available yet.")
+    from loaders.s3_loader import get_recent_s3_errors
+    recent = get_recent_s3_errors()
+    if recent:
+        st.error(f"Trade data unavailable — S3 error: {recent[-1].get('error_type', '?')}: {recent[-1].get('message', '')[:100]}")
+    else:
+        st.warning("trades_full.csv not available yet — no trades have been executed.")
     st.stop()
 
 # Normalize columns

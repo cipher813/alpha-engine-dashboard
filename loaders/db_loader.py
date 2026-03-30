@@ -31,12 +31,12 @@ def _get_db_path_key() -> str:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(show_spinner=False, ttl=3600)
 def load_research_db() -> sqlite3.Connection | None:
     """
     Download research.db from S3 to /tmp/research.db and return a sqlite3
-    connection. Returns None on failure. Cached as a resource (one connection
-    per process).
+    connection. Returns None on failure. Cached for 1 hour — re-downloads
+    from S3 on expiry to pick up new data and recover from stale connections.
     """
     try:
         bucket = _get_research_bucket()
@@ -84,14 +84,19 @@ def _normalize_score_col(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_MAX_QUERY_ROWS = 50_000  # safety cap to prevent OOM on t3.micro
+
+
 def get_score_performance() -> pd.DataFrame:
     """
-    Return all rows from score_performance ordered by score_date ascending.
-    Expected columns: score_date, symbol, composite_score, beat_spy_10d,
-    beat_spy_30d, return_10d, return_30d, spy_10d_return, spy_30d_return, ...
+    Return rows from score_performance ordered by score_date ascending.
+    Capped at _MAX_QUERY_ROWS most recent rows for memory safety.
     """
-    sql = "SELECT * FROM score_performance ORDER BY score_date"
-    return _normalize_score_col(query_research_db(sql))
+    sql = f"SELECT * FROM score_performance ORDER BY score_date DESC LIMIT {_MAX_QUERY_ROWS}"
+    df = _normalize_score_col(query_research_db(sql))
+    if not df.empty:
+        df = df.sort_values("score_date", ascending=True).reset_index(drop=True)
+    return df
 
 
 def get_investment_thesis(symbol: str | None = None) -> pd.DataFrame:
@@ -99,9 +104,11 @@ def get_investment_thesis(symbol: str | None = None) -> pd.DataFrame:
     Return rows from investment_thesis, optionally filtered by symbol.
     """
     if symbol:
-        sql = "SELECT * FROM investment_thesis WHERE symbol = ?"
+        sql = "SELECT * FROM investment_thesis WHERE symbol = ? ORDER BY date DESC LIMIT 1000"
         return query_research_db(sql, params=(symbol,))
-    return query_research_db("SELECT * FROM investment_thesis")
+    return query_research_db(
+        f"SELECT * FROM investment_thesis ORDER BY date DESC LIMIT {_MAX_QUERY_ROWS}"
+    )
 
 
 def get_macro_snapshots() -> pd.DataFrame:
@@ -161,9 +168,9 @@ def get_predictor_outcomes(symbol: str | None = None) -> pd.DataFrame:
     """Query predictor_outcomes table. Returns empty DataFrame if table missing."""
     if symbol:
         return query_research_db(
-            "SELECT * FROM predictor_outcomes WHERE symbol = ? ORDER BY prediction_date DESC",
+            "SELECT * FROM predictor_outcomes WHERE symbol = ? ORDER BY prediction_date DESC LIMIT 1000",
             params=(symbol,),
         )
     return query_research_db(
-        "SELECT * FROM predictor_outcomes ORDER BY prediction_date DESC"
+        f"SELECT * FROM predictor_outcomes ORDER BY prediction_date DESC LIMIT {_MAX_QUERY_ROWS}"
     )

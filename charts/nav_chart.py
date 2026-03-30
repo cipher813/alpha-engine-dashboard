@@ -34,10 +34,10 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
 
     # Compute cumulative returns from daily_return_pct and spy_return_pct
     # Expects values as decimals (e.g., 0.01 = 1%) or percent (e.g., 1.0 = 1%)
-    # Detect scale: if mean absolute value > 1, assume percent — convert to decimal
+    # Detect scale: if max absolute value > 1, assume percent — convert to decimal
     def _to_decimal(series: pd.Series) -> pd.Series:
         s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-        if s.abs().mean() > 1.0:
+        if len(s) > 0 and s.abs().max() > 1.0:
             s = s / 100.0
         return s
 

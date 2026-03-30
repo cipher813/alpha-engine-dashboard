@@ -187,11 +187,14 @@ With ~60-150MB per Streamlit process plus nginx and OS overhead, the instance ru
 - **1GB swap file** (`/swapfile`) prevents OOM freezes
 - **systemd MemoryMax=300M** per Streamlit service caps runaway memory
 
+Database queries are capped at 50,000 rows (`_MAX_QUERY_ROWS` in `loaders/db_loader.py`) to prevent OOM on large tables. S3 `_s3_get_object()` retries transient errors up to 3 times with exponential backoff (1s, 2s, 4s).
+
 If memory issues recur, options to reduce footprint:
 
 1. **Upgrade to t3.small** (2GB RAM, ~$6/month more) — simplest, doubles headroom
 2. **Static public site** — render portfolio chart as static HTML via cron, serve with nginx directly (zero RAM for public page)
 3. **Merge into single Streamlit app** — add public pages to dashboard, use Cloudflare Access path rules to protect `/dashboard/*`. Requires refactoring the public app's custom CSS/layout into conditional page logic.
+4. **Lower `_MAX_QUERY_ROWS`** — reduce from 50,000 if tables grow large. Monitor with Data Inventory page.
 
 ---
 

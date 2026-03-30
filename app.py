@@ -32,6 +32,7 @@ from loaders.s3_loader import (
     load_predictions_json,
     load_population_json,
     load_order_book_summary,
+    get_recent_s3_errors,
 )
 from loaders.signal_loader import (
     signals_to_df,
@@ -233,11 +234,16 @@ def _render_current_holdings(
         eod_df_copy = eod_df.copy()
         eod_df_copy["date"] = pd.to_datetime(eod_df_copy["date"])
         today_rows = eod_df_copy[eod_df_copy["date"].dt.date == date.today()]
-        latest_row = today_rows.iloc[-1] if not today_rows.empty else eod_df_copy.iloc[-1]
+        if not today_rows.empty:
+            latest_row = today_rows.iloc[-1]
+        elif not eod_df_copy.empty:
+            latest_row = eod_df_copy.iloc[-1]
+        else:
+            latest_row = None
 
-        nav = latest_row.get("portfolio_nav")
-        daily_ret_norm = _normalize_pct(latest_row.get("daily_return_pct"))
-        alpha_norm = _normalize_pct(latest_row.get("daily_alpha_pct"))
+        nav = latest_row.get("portfolio_nav") if latest_row is not None else None
+        daily_ret_norm = _normalize_pct(latest_row.get("daily_return_pct")) if latest_row is not None else None
+        alpha_norm = _normalize_pct(latest_row.get("daily_alpha_pct")) if latest_row is not None else None
 
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -469,6 +475,18 @@ def main() -> None:
     st.divider()
     _render_performance(eod_df)
     _render_market_context(macro_df)
+
+    # Surface recent S3 errors on home page (D8)
+    recent_errors = get_recent_s3_errors()
+    if recent_errors:
+        with st.expander(f"S3 Errors ({len(recent_errors)} recent)", expanded=False):
+            for err in recent_errors[-5:]:
+                st.caption(
+                    f"**{err.get('error_type', '?')}** — "
+                    f"`{err.get('key', '?')}` — "
+                    f"{err.get('message', '')[:100]} — "
+                    f"_{err.get('timestamp', '')}_"
+                )
 
 
 if __name__ == "__main__":
