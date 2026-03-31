@@ -43,15 +43,19 @@ S3_BUCKET = "alpha-engine-research"
 
 
 def _load_env():
-    """Load .env file if present (for POLYGON_API_KEY)."""
-    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
+    """Load .env files if present (for POLYGON_API_KEY)."""
+    env_paths = [
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"),
+        os.path.expanduser("~/.alpha-engine.env"),
+    ]
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
 
 
 def _write_health(s3, status: str, date_str: str, n_tickers: int = 0, note: str = ""):
