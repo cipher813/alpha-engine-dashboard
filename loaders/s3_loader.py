@@ -462,6 +462,12 @@ def load_predictor_params() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def load_feature_importance() -> dict:
+    """Load latest feature importance (SHAP + gain + IC) from S3. Returns {} on failure."""
+    data = _fetch_s3_json(_research_bucket(), f"{_PREDICTOR_METRICS_PREFIX}/feature_importance_latest.json")
+    return data if isinstance(data, dict) else {}
+
+
 @st.cache_data(ttl=_ttl("research"))
 def load_population_json() -> dict | None:
     """Load population/latest.json from the research bucket.

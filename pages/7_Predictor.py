@@ -14,10 +14,10 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_signals_json, load_mode_history
+from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_signals_json, load_mode_history, load_feature_importance
 from loaders.db_loader import get_predictor_outcomes
 from loaders.signal_loader import get_available_signal_dates
-from charts.predictor_chart import make_model_drift_chart
+from charts.predictor_chart import make_model_drift_chart, make_feature_importance_chart
 
 st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
 
@@ -146,6 +146,40 @@ else:
     for i, (mode, count) in enumerate(wins.most_common()):
         pct = count / len(mh_df) * 100
         cols[i].metric(f"{mode.title()} Wins", f"{count} ({pct:.0f}%)")
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Feature Importance
+# ---------------------------------------------------------------------------
+
+st.subheader("Feature Importance")
+
+fi_data = load_feature_importance()
+
+if not fi_data:
+    st.info(
+        "Feature importance data not available yet. "
+        "It is written after each weekly GBM training run."
+    )
+else:
+    fi_fig = make_feature_importance_chart(fi_data)
+    st.plotly_chart(fi_fig, use_container_width=True)
+
+    # Metadata row
+    fi_cols = st.columns(4)
+    fi_cols[0].metric("Training Date", fi_data.get("date", "—"))
+    fi_cols[1].metric("Model Version", fi_data.get("model_version", "—"))
+    fi_cols[2].metric("Promoted", "Yes" if fi_data.get("promoted") else "No")
+    n_noise = len(fi_data.get("noise_candidates", []) or [])
+    fi_cols[3].metric("Noise Candidates", n_noise)
+
+    # Noise candidates expander
+    noise = fi_data.get("noise_candidates", [])
+    if noise:
+        with st.expander(f"Noise feature candidates ({len(noise)})"):
+            st.caption("Features with SHAP < 1% of max AND |IC| < 0.005 — candidates for removal.")
+            st.write(", ".join(noise))
 
 st.divider()
 

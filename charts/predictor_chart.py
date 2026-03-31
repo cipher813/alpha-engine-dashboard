@@ -78,3 +78,66 @@ def make_model_drift_chart(outcomes_df: pd.DataFrame) -> go.Figure:
         height=350,
     )
     return fig
+
+
+def make_feature_importance_chart(fi_data: dict) -> go.Figure:
+    """
+    Horizontal bar chart of feature importance (SHAP values preferred, gain fallback).
+    Shows top 15 features with IC overlay markers.
+    """
+    shap_imp = fi_data.get("shap_importance") or {}
+    gain_imp = fi_data.get("gain_importance") or {}
+    feature_ics = fi_data.get("feature_ics") or {}
+
+    # Prefer SHAP, fall back to gain
+    importance = shap_imp if shap_imp else gain_imp
+    label = "SHAP Importance" if shap_imp else "Gain Importance"
+
+    if not importance:
+        fig = go.Figure()
+        fig.update_layout(title="Feature Importance — No data available")
+        return fig
+
+    # Sort by importance, take top 15
+    sorted_features = sorted(importance.items(), key=lambda x: abs(x[1]), reverse=True)[:15]
+    sorted_features.reverse()  # bottom-to-top for horizontal bar
+
+    names = [f[0] for f in sorted_features]
+    values = [f[1] for f in sorted_features]
+    ics = [feature_ics.get(n, 0.0) for n in names]
+
+    fig = go.Figure()
+
+    # Importance bars
+    fig.add_trace(go.Bar(
+        y=names, x=values,
+        orientation="h", name=label,
+        marker_color=["#2ca02c" if ic > 0 else "#d62728" for ic in ics],
+        hovertemplate="<b>%{y}</b><br>Importance: %{x:.4f}<extra></extra>",
+    ))
+
+    # IC markers on secondary x-axis
+    fig.add_trace(go.Scatter(
+        y=names, x=ics,
+        mode="markers", name="Feature IC",
+        marker=dict(
+            size=10, symbol="diamond",
+            color=["#1f77b4" if ic > 0 else "#ff7f0e" for ic in ics],
+            line=dict(width=1, color="black"),
+        ),
+        xaxis="x2",
+        hovertemplate="<b>%{y}</b><br>IC: %{x:.4f}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        title=f"Feature Importance ({label}) & Predictive IC",
+        xaxis=dict(title=label, side="bottom", showgrid=True, gridcolor="rgba(0,0,0,0.07)"),
+        xaxis2=dict(title="Feature IC (correlation with 5d returns)", side="top",
+                    overlaying="x", showgrid=False),
+        plot_bgcolor="white", paper_bgcolor="white",
+        height=max(350, len(names) * 28 + 80),
+        margin=dict(t=60, b=40, l=180, r=80),
+        legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="right", x=1),
+        bargap=0.3,
+    )
+    return fig
