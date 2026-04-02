@@ -99,6 +99,11 @@ def _table_counts() -> dict[str, int]:
         "population_history",
         "stock_archive",
         "thesis_history",
+        "universe_returns",
+        "scanner_evaluations",
+        "team_candidates",
+        "cio_evaluations",
+        "executor_shadow_book",
     ]
     counts = {}
     for t in tables:
@@ -142,6 +147,11 @@ volume_data = {
         "Prediction Dates (S3)",
         "Daily Closes (S3)",
         "Price Cache Slim (tickers)",
+        "Universe Returns (eval)",
+        "Scanner Evaluations (eval)",
+        "Team Candidates (eval)",
+        "CIO Evaluations (eval)",
+        "Executor Shadow Book (eval)",
     ],
     "Records": [
         table_counts.get("investment_thesis", "—"),
@@ -157,6 +167,11 @@ volume_data = {
         n_predictions_dates,
         n_daily_closes,
         n_price_cache,
+        table_counts.get("universe_returns", "—"),
+        table_counts.get("scanner_evaluations", "—"),
+        table_counts.get("team_candidates", "—"),
+        table_counts.get("cio_evaluations", "—"),
+        table_counts.get("executor_shadow_book", "—"),
     ],
 }
 
@@ -298,6 +313,38 @@ if trades_df is not None and not trades_df.empty:
     if "entry_trade_id" in trades_df.columns:
         n_roundtrips = int(trades_df["entry_trade_id"].notna().sum())
 
+# Phase 4 table counts
+n_universe_returns = table_counts.get("universe_returns", 0)
+n_scanner_evals = table_counts.get("scanner_evaluations", 0)
+n_team_candidates = table_counts.get("team_candidates", 0)
+n_cio_evals = table_counts.get("cio_evaluations", 0)
+n_shadow_book = table_counts.get("executor_shadow_book", 0)
+
+# Compute weeks from eval tables
+n_ur_weeks = 0
+n_se_weeks = 0
+n_tc_weeks = 0
+n_cio_weeks = 0
+if conn:
+    for tbl, attr in [
+        ("universe_returns", "n_ur_weeks"),
+        ("scanner_evaluations", "n_se_weeks"),
+        ("team_candidates", "n_tc_weeks"),
+        ("cio_evaluations", "n_cio_weeks"),
+    ]:
+        try:
+            row = conn.execute(f"SELECT COUNT(DISTINCT eval_date) FROM {tbl}").fetchone()  # noqa: S608
+            if attr == "n_ur_weeks":
+                n_ur_weeks = row[0] if row else 0
+            elif attr == "n_se_weeks":
+                n_se_weeks = row[0] if row else 0
+            elif attr == "n_tc_weeks":
+                n_tc_weeks = row[0] if row else 0
+            elif attr == "n_cio_weeks":
+                n_cio_weeks = row[0] if row else 0
+        except Exception:
+            pass
+
 maturity_data = [
     {
         "Optimizer": "Scoring weights",
@@ -333,6 +380,48 @@ maturity_data = [
         "Current": n_roundtrips,
         "Threshold": "—",
         "Status": "Collecting" if n_roundtrips > 0 else "Pending deploy",
+    },
+    {
+        "Optimizer": "4a Scanner auto-relax",
+        "Metric": "Scanner eval weeks",
+        "Current": n_se_weeks,
+        "Threshold": 8,
+        "Status": "Active" if n_se_weeks >= 8 else "Collecting",
+    },
+    {
+        "Optimizer": "4b Team slot allocation",
+        "Metric": "Team candidate weeks",
+        "Current": n_tc_weeks,
+        "Threshold": 8,
+        "Status": "Active" if n_tc_weeks >= 8 else "Collecting",
+    },
+    {
+        "Optimizer": "4c CIO fallback",
+        "Metric": "CIO eval weeks",
+        "Current": n_cio_weeks,
+        "Threshold": 8,
+        "Status": "Active" if n_cio_weeks >= 8 else "Collecting",
+    },
+    {
+        "Optimizer": "4d Predictor p_up sizing",
+        "Metric": "Resolved predictions",
+        "Current": n_pred_outcomes,
+        "Threshold": 30,
+        "Status": "Active" if n_pred_outcomes >= 30 else "Collecting",
+    },
+    {
+        "Optimizer": "4e Trigger optimizer",
+        "Metric": "Total trades",
+        "Current": n_trades,
+        "Threshold": 200,
+        "Status": "Active" if n_trades >= 200 else "Collecting",
+    },
+    {
+        "Optimizer": "4f Sizing A/B test",
+        "Metric": "Total trades",
+        "Current": n_trades,
+        "Threshold": 50,
+        "Status": "Active" if n_trades >= 50 else "Collecting",
     },
 ]
 
