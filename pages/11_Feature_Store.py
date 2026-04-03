@@ -79,6 +79,17 @@ def _load_training_feature_stats(bucket: str) -> dict | None:
 
 
 @st.cache_data(ttl=900)
+def _get_s3_last_modified(bucket: str, key: str) -> str | None:
+    """Get LastModified timestamp for an S3 object."""
+    try:
+        client = get_s3_client()
+        resp = client.head_object(Bucket=bucket, Key=key)
+        return resp["LastModified"].strftime("%Y-%m-%d %H:%M UTC")
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=900)
 def _load_predictions_meta(bucket: str) -> dict | None:
     return _fetch_s3_json(bucket, "predictor/predictions/latest.json")
 
@@ -128,6 +139,14 @@ elif age_days == 0:
 
 st.subheader("Coverage")
 
+_group_filenames = {
+    "Technical": "technical.parquet",
+    "Interaction": "interaction.parquet",
+    "Macro": "macro.parquet",
+    "Alternative": "alternative.parquet",
+    "Fundamental": "fundamental.parquet",
+}
+
 groups = {
     "Technical": tech_df,
     "Interaction": interaction_df,
@@ -138,6 +157,7 @@ groups = {
 
 coverage_data = []
 for name, df in groups.items():
+    last_modified = _get_s3_last_modified(bucket, f"features/{latest_date}/{_group_filenames[name]}")
     if df is not None and not df.empty:
         n_tickers = df["ticker"].nunique() if "ticker" in df.columns else 1
         n_features = len([c for c in df.columns if c not in ("ticker", "date")])
@@ -146,6 +166,7 @@ for name, df in groups.items():
             "Group": name,
             "Tickers": n_tickers,
             "Features": n_features,
+            "Last Updated": last_modified or "?",
             "Null Values": n_nulls,
             "Status": "OK" if n_nulls == 0 else f"{n_nulls} nulls",
         })
@@ -154,6 +175,7 @@ for name, df in groups.items():
             "Group": name,
             "Tickers": 0,
             "Features": 0,
+            "Last Updated": last_modified or "MISSING",
             "Null Values": 0,
             "Status": "MISSING",
         })
