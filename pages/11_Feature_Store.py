@@ -64,6 +64,16 @@ def _load_drift_report(bucket: str, date_str: str) -> dict | None:
 
 
 @st.cache_data(ttl=900)
+def _load_registry(bucket: str) -> list[dict] | None:
+    data = _fetch_s3_json(bucket, "features/registry.json")
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict) and "features" in data:
+        return data["features"]
+    return data
+
+
+@st.cache_data(ttl=900)
 def _load_training_feature_stats(bucket: str) -> dict | None:
     return _fetch_s3_json(bucket, "predictor/metrics/training_feature_stats.json")
 
@@ -159,6 +169,15 @@ st.caption(f"Total: {total_tickers} tickers, {total_features} features across {l
 
 st.subheader("Feature Catalog")
 
+# Load registry for descriptions
+registry = _load_registry(bucket)
+_registry_lookup: dict[str, dict] = {}
+if registry:
+    for entry in registry:
+        name = entry.get("name", "")
+        if name:
+            _registry_lookup[name] = entry
+
 _meta_cols = {"ticker", "date"}
 catalog_rows = []
 for group_name, df in groups.items():
@@ -167,9 +186,13 @@ for group_name, df in groups.items():
             if col in _meta_cols:
                 continue
             series = df[col]
+            reg = _registry_lookup.get(col, {})
             catalog_rows.append({
                 "Group": group_name,
                 "Feature": col,
+                "Description": reg.get("description", ""),
+                "Source": reg.get("source", ""),
+                "Refresh": reg.get("refresh", ""),
                 "Mean": round(float(series.mean()), 4) if pd.api.types.is_numeric_dtype(series) else None,
                 "Std": round(float(series.std()), 4) if pd.api.types.is_numeric_dtype(series) else None,
                 "Nulls": int(series.isna().sum()),
@@ -184,8 +207,9 @@ if catalog_rows:
         if group_slice.empty:
             continue
         with st.expander(f"{group_name} ({len(group_slice)} features)", expanded=False):
+            display_cols = ["Feature", "Description", "Source", "Refresh", "Mean", "Std", "Nulls"]
             st.dataframe(
-                group_slice[["Feature", "Mean", "Std", "Nulls"]].reset_index(drop=True),
+                group_slice[display_cols].reset_index(drop=True),
                 use_container_width=True,
                 hide_index=True,
             )
