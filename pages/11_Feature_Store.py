@@ -155,7 +155,42 @@ total_tickers = tech_df["ticker"].nunique() if tech_df is not None and "ticker" 
 total_features = schema.get("n_features", "?") if schema else "?"
 st.caption(f"Total: {total_tickers} tickers, {total_features} features across {len([g for g in groups.values() if g is not None])} groups")
 
-# ─── Section 3: Feature Distributions ────────────────────────────────────────
+# ─── Section 3: Feature Catalog ───────────────────────────────────────────────
+
+st.subheader("Feature Catalog")
+
+_meta_cols = {"ticker", "date"}
+catalog_rows = []
+for group_name, df in groups.items():
+    if df is not None and not df.empty:
+        for col in df.columns:
+            if col in _meta_cols:
+                continue
+            series = df[col]
+            catalog_rows.append({
+                "Group": group_name,
+                "Feature": col,
+                "Mean": round(float(series.mean()), 4) if pd.api.types.is_numeric_dtype(series) else None,
+                "Std": round(float(series.std()), 4) if pd.api.types.is_numeric_dtype(series) else None,
+                "Nulls": int(series.isna().sum()),
+            })
+
+if catalog_rows:
+    catalog_df = pd.DataFrame(catalog_rows)
+    st.caption(f"{len(catalog_rows)} features across {catalog_df['Group'].nunique()} groups")
+
+    for group_name in ["Technical", "Interaction", "Macro", "Alternative", "Fundamental"]:
+        group_slice = catalog_df[catalog_df["Group"] == group_name]
+        if group_slice.empty:
+            continue
+        with st.expander(f"{group_name} ({len(group_slice)} features)", expanded=False):
+            st.dataframe(
+                group_slice[["Feature", "Mean", "Std", "Nulls"]].reset_index(drop=True),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+# ─── Section 4: Feature Distributions ────────────────────────────────────────
 
 st.subheader("Feature Distributions")
 
