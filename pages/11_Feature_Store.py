@@ -51,7 +51,8 @@ def _find_latest_feature_date(bucket: str, max_lookback: int = 10) -> str | None
     """Find the most recent feature snapshot date."""
     for offset in range(max_lookback):
         d = (date.today() - timedelta(days=offset)).isoformat()
-        raw = _s3_get_object(bucket, f"features/{d}/schema_version.json")
+        # Check for technical.parquet (always present) — schema_version.json may not exist yet
+        raw = _s3_get_object(bucket, f"features/{d}/technical.parquet")
         if raw is not None:
             return d
     return None
@@ -100,8 +101,13 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("Latest Snapshot", latest_date)
 col2.metric("Age", f"{age_days}d", delta=None if age_days <= 1 else f"{age_days}d old",
             delta_color="off" if age_days <= 1 else "inverse")
-col3.metric("Schema Version", schema.get("schema_version", "?") if schema else "?")
-col4.metric("Schema Hash", (schema.get("schema_hash", "?")[:8] + "...") if schema else "?")
+if schema:
+    col3.metric("Schema Version", schema.get("schema_version", "?"))
+    col4.metric("Schema Hash", (schema.get("schema_hash", "?")[:8] + "..."))
+else:
+    n_feat = len([c for c in (tech_df.columns if tech_df is not None else []) if c not in ("ticker", "date")])
+    col3.metric("Features", n_feat)
+    col4.metric("Schema", "not versioned yet")
 
 if age_days > 2:
     st.warning(f"Feature store is {age_days} days old. Check that DailyData pipeline ran successfully.")
@@ -240,7 +246,7 @@ st.subheader("Recent Snapshots")
 snapshot_dates = []
 for offset in range(14):
     d = (date.today() - timedelta(days=offset)).isoformat()
-    raw = _s3_get_object(bucket, f"features/{d}/schema_version.json")
+    raw = _s3_get_object(bucket, f"features/{d}/technical.parquet")
     if raw is not None:
         snapshot_dates.append(d)
 
