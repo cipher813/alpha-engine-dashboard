@@ -1,0 +1,65 @@
+baseURL: https://nousergon.ai/blog/
+locale: en-us
+title: "Nous Ergon"
+theme: PaperMod
+
+# Build output goes to blog/public/ — deployed to /var/www/blog/ on EC2
+publishDir: public
+
+paginate: 10
+
+params:
+  env: production
+  title: "Nous Ergon"
+  description: "Intelligence at work — building an autonomous alpha engine with AI"
+  author: "Brian McMahon"
+
+  # Dark mode by default, no toggle (matches site brand)
+  defaultTheme: dark
+  disableThemeToggle: true
+
+  # Show reading time, TOC, breadcrumbs
+  ShowReadingTime: true
+  ShowBreadCrumbs: true
+  ShowPostNavLinks: true
+  ShowShareButtons: true
+  ShowCodeCopyButtons: true
+  ShowToc: true
+  TocOpen: false
+
+  # Comments enabled (Giscus configured in layouts partial)
+  comments: true
+
+  # Cover image defaults
+  cover:
+    linkFullImages: true
+
+  # Default OG image for social sharing (Twitter/X, LinkedIn, etc.)
+  images:
+    - images/og-default.png
+
+  # Assets — custom CSS for brand styling
+  assets:
+    disableFingerprinting: false
+
+# Menu removed — custom header.html handles nav to match nousergon.ai
+
+# Markdown rendering
+markup:
+  highlight:
+    style: dracula
+    lineNos: false
+    guessSyntax: true
+  goldmark:
+    renderer:
+      unsafe: true
+
+# Output formats
+outputs:
+  home:
+    - HTML
+    - RSS
+
+# Taxonomy
+taxonomies:
+  tag: tags

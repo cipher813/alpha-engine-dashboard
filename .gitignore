@@ -14,3 +14,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Hugo blog build output (source is tracked, built files are not)
+blog/public/
+blog/resources/
