@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from shared.normalizers import to_decimal_series
+
 
 def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
     """
@@ -32,18 +34,9 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
         df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
 
-    # Compute cumulative returns from daily_return_pct and spy_return_pct
-    # Expects values as decimals (e.g., 0.01 = 1%) or percent (e.g., 1.0 = 1%)
-    # Detect scale: if max absolute value > 1, assume percent — convert to decimal
-    def _to_decimal(series: pd.Series) -> pd.Series:
-        s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-        if len(s) > 0 and s.abs().max() > 1.0:
-            s = s / 100.0
-        return s
-
-    port_ret = _to_decimal(df["daily_return_pct"])
-    spy_ret = _to_decimal(df["spy_return_pct"])
-    alpha = _to_decimal(df["daily_alpha_pct"])
+    port_ret = to_decimal_series(df["daily_return_pct"])
+    spy_ret = to_decimal_series(df["spy_return_pct"])
+    alpha = to_decimal_series(df["daily_alpha_pct"])
 
     port_cum = ((1 + port_ret).cumprod() - 1) * 100  # percent
     spy_cum = ((1 + spy_ret).cumprod() - 1) * 100     # percent

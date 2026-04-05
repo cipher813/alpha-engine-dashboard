@@ -24,6 +24,9 @@ from charts.nav_chart import make_nav_chart
 from charts.alpha_chart import make_alpha_chart
 from charts.portfolio_chart import make_sector_allocation_chart, make_sector_rotation_chart
 from shared.formatters import format_pct, format_dollar, color_return
+from shared.normalizers import to_decimal_series
+from shared.accuracy_metrics import compute_drawdown, compute_sharpe, find_drawdown_episodes
+from shared.position_pnl import parse_positions_snapshot, enrich_positions
 
 st.set_page_config(page_title="Portfolio — Alpha Engine", layout="wide")
 
@@ -32,78 +35,13 @@ st.set_page_config(page_title="Portfolio — Alpha Engine", layout="wide")
 # ---------------------------------------------------------------------------
 
 
-def _to_decimal(series: pd.Series) -> pd.Series:
-    """Convert percent-scale series to decimal (e.g., 2.5 → 0.025).
-
-    Uses max absolute value (not mean) to detect scale — more robust than
-    mean-based detection when most returns are near zero.
-    """
-    s = pd.to_numeric(series, errors="coerce").fillna(0.0)
-    if len(s) > 0 and s.abs().max() > 1.0:
-        s = s / 100.0
-    return s
+# Aliases for backward compatibility within this file
+_to_decimal = to_decimal_series
+_compute_drawdown = compute_drawdown
+_compute_sharpe = compute_sharpe
 
 
-def _compute_drawdown(daily_ret: pd.Series) -> pd.Series:
-    """Compute drawdown series from daily returns (decimal scale)."""
-    cum_ret = (1 + daily_ret).cumprod()
-    peak = cum_ret.cummax()
-    drawdown = (cum_ret - peak) / peak
-    return drawdown
-
-
-def _compute_sharpe(daily_ret: pd.Series) -> float | None:
-    """Compute annualized Sharpe ratio. Requires >= 30 rows."""
-    valid = daily_ret.dropna()
-    if len(valid) < 30:
-        return None
-    return float(valid.mean() / valid.std() * np.sqrt(252))
-
-
-def _find_drawdown_episodes(drawdown: pd.Series, dates: pd.Series) -> list[dict]:
-    """Identify contiguous drawdown episodes from a drawdown series."""
-    episodes = []
-    in_dd = False
-    start_idx = None
-    trough_idx = None
-    trough_val = 0.0
-
-    for i in range(len(drawdown)):
-        dd = drawdown.iloc[i]
-        if dd < 0 and not in_dd:
-            in_dd = True
-            start_idx = i
-            trough_idx = i
-            trough_val = dd
-        elif dd < 0 and in_dd:
-            if dd < trough_val:
-                trough_idx = i
-                trough_val = dd
-        elif dd >= 0 and in_dd:
-            episodes.append({
-                "Start": dates.iloc[start_idx].strftime("%Y-%m-%d"),
-                "Trough": dates.iloc[trough_idx].strftime("%Y-%m-%d"),
-                "Depth": f"{trough_val * 100:.2f}%",
-                "Recovery": dates.iloc[i].strftime("%Y-%m-%d"),
-                "Days to Trough": (dates.iloc[trough_idx] - dates.iloc[start_idx]).days,
-                "Days to Recovery": (dates.iloc[i] - dates.iloc[trough_idx]).days,
-                "Status": "Recovered",
-            })
-            in_dd = False
-
-    # Handle ongoing drawdown
-    if in_dd:
-        episodes.append({
-            "Start": dates.iloc[start_idx].strftime("%Y-%m-%d"),
-            "Trough": dates.iloc[trough_idx].strftime("%Y-%m-%d"),
-            "Depth": f"{trough_val * 100:.2f}%",
-            "Recovery": "—",
-            "Days to Trough": (dates.iloc[trough_idx] - dates.iloc[start_idx]).days,
-            "Days to Recovery": "—",
-            "Status": "In Progress",
-        })
-
-    return episodes
+_find_drawdown_episodes = find_drawdown_episodes
 
 
 from shared.constants import DEFAULT_CACHE_TTL_SECONDS
@@ -286,74 +224,11 @@ if episodes:
 # ---------------------------------------------------------------------------
 st.header("Current Positions")
 
-positions_df = None
-
-# Parse positions_snapshot from the latest eod_pnl row
-latest_row = eod_df.iloc[-1]
-if "positions_snapshot" in eod_df.columns:
-    try:
-        snapshot_raw = latest_row["positions_snapshot"]
-        if pd.notna(snapshot_raw) and snapshot_raw:
-            positions_data = json.loads(str(snapshot_raw))
-            if isinstance(positions_data, list):
-                positions_df = pd.DataFrame(positions_data)
-            elif isinstance(positions_data, dict):
-                positions_df = pd.DataFrame([positions_data])
-    except Exception as e:
-        logger.warning("Failed to parse positions snapshot: %s", e)
-        positions_df = None
+positions_df = parse_positions_snapshot(eod_df)
 
 if positions_df is not None and not positions_df.empty:
-    # Join with today's signals for score
-    if signals_data:
-        sig_df = signals_to_df(signals_data)
-        if not sig_df.empty and "ticker" in sig_df.columns:
-            ticker_col = "ticker" if "ticker" in positions_df.columns else None
-            if ticker_col:
-                positions_df = positions_df.merge(
-                    sig_df[["ticker", "score", "signal", "conviction"]],
-                    on="ticker",
-                    how="left",
-                    suffixes=("", "_signal"),
-                )
-
-    # Join with trades to show return since entry
-    if trades_df is not None and not trades_df.empty:
-        # Robust column detection for action/signal
-        action_col = safe_column(trades_df, "action", "signal")
-        if action_col:
-            enter_trades = trades_df[trades_df[action_col].str.upper() == "ENTER"].copy()
-        else:
-            enter_trades = pd.DataFrame()
-
-        if not enter_trades.empty and "ticker" in enter_trades.columns and "ticker" in positions_df.columns:
-            if "date" in enter_trades.columns:
-                enter_trades["date"] = pd.to_datetime(enter_trades["date"])
-                latest_entry = enter_trades.sort_values("date").groupby("ticker").last().reset_index()
-                # Robust price column detection
-                price_col = safe_column(latest_entry, "price", "fill_price", "price_at_order")
-                if price_col:
-                    positions_df = positions_df.merge(
-                        latest_entry[["ticker", price_col, "date"]].rename(
-                            columns={price_col: "entry_price", "date": "entry_date"}
-                        ),
-                        on="ticker",
-                        how="left",
-                    )
-
-    # --- Position-level P&L (Gap #4) ---
-    if "market_value" in positions_df.columns and "shares" in positions_df.columns:
-        positions_df["shares"] = pd.to_numeric(positions_df["shares"], errors="coerce")
-        positions_df["market_value"] = pd.to_numeric(positions_df["market_value"], errors="coerce")
-        positions_df["current_price"] = positions_df["market_value"] / positions_df["shares"]
-
-        if "entry_price" in positions_df.columns:
-            positions_df["entry_price"] = pd.to_numeric(positions_df["entry_price"], errors="coerce")
-            positions_df["unrealized_pnl"] = (positions_df["current_price"] - positions_df["entry_price"]) * positions_df["shares"]
-            positions_df["return_pct"] = positions_df["current_price"] / positions_df["entry_price"] - 1
-
-        if "entry_date" in positions_df.columns:
-            positions_df["days_held"] = (pd.Timestamp.now() - pd.to_datetime(positions_df["entry_date"])).dt.days
+    sig_df = signals_to_df(signals_data) if signals_data else None
+    positions_df = enrich_positions(positions_df, sig_df, trades_df)
 
     # P&L summary metrics
     if "unrealized_pnl" in positions_df.columns:

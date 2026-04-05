@@ -110,85 +110,59 @@ class TestS3ErrorTracking:
 class TestPublicGetS3Client:
     """Tests for public/loaders/s3_loader.py get_s3_client() fallback."""
 
-    def test_falls_back_to_default_client_without_secrets(self):
-        """
-        When st.secrets['aws'] raises KeyError, get_s3_client()
-        should fall back to boto3.client('s3') (IAM role).
-        """
-        # Set up st.secrets to raise KeyError
-        mock_st.secrets.__getitem__ = MagicMock(side_effect=KeyError("aws"))
-
-        # Import the public loader
-        public_loader_path = str(Path(__file__).parent.parent / "public")
-        if public_loader_path not in sys.path:
-            sys.path.insert(0, public_loader_path)
-
-        # Force reimport
-        if "loaders.s3_loader" in sys.modules:
-            saved = sys.modules.pop("loaders.s3_loader")
-
-        with patch("boto3.client") as mock_boto:
-            mock_boto.return_value = MagicMock()
-
-            # Import the public s3_loader (it will shadow the private one)
-            # We need to import it directly from the file
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(
-                "public_s3_loader",
-                str(Path(__file__).parent.parent / "public" / "loaders" / "s3_loader.py"),
-            )
-            public_loader = importlib.util.module_from_spec(spec)
-
-            # Mock the config loading for the public loader
-            with patch("builtins.open", MagicMock()):
-                with patch("yaml.safe_load", return_value={
-                    "s3": {"trades_bucket": "test"},
-                    "cache_ttl": {"trades": 900},
-                    "paths": {"eod_pnl": "trades/eod_pnl.csv"},
-                }):
-                    spec.loader.exec_module(public_loader)
-
-            # Now test the fallback
-            client = public_loader.get_s3_client()
-
-            # Should have called boto3.client("s3") as fallback
-            mock_boto.assert_called_with("s3")
-
-        # Restore
-        if "saved" in dir():
-            sys.modules["loaders.s3_loader"] = saved
-
-    def test_uses_secrets_when_available(self):
-        """
-        When st.secrets['aws'] is available, get_s3_client() should use
-        explicit credentials from secrets.
-        """
-        mock_secrets = {
-            "AWS_ACCESS_KEY_ID": "AKIA_TEST",
-            "AWS_SECRET_ACCESS_KEY": "secret_test",
-            "AWS_DEFAULT_REGION": "us-west-2",
-        }
-        mock_st.secrets.__getitem__ = MagicMock(return_value=mock_secrets)
-
+    def _load_public_loader(self):
+        """Load public/loaders/s3_loader.py via importlib with config mocked."""
         import importlib.util
         spec = importlib.util.spec_from_file_location(
-            "public_s3_loader_2",
+            f"public_s3_loader_{id(self)}",
             str(Path(__file__).parent.parent / "public" / "loaders" / "s3_loader.py"),
         )
-        public_loader = importlib.util.module_from_spec(spec)
-
+        module = importlib.util.module_from_spec(spec)
         with patch("builtins.open", MagicMock()):
             with patch("yaml.safe_load", return_value={
                 "s3": {"trades_bucket": "test"},
                 "cache_ttl": {"trades": 900},
                 "paths": {"eod_pnl": "trades/eod_pnl.csv"},
             }):
-                spec.loader.exec_module(public_loader)
+                spec.loader.exec_module(module)
+        return module
+
+    def test_falls_back_to_default_client_without_secrets(self):
+        """
+        When st.secrets['aws'] raises KeyError, get_s3_client()
+        should fall back to boto3.client('s3') (IAM role).
+        """
+        # Use a real empty dict so ["aws"] raises KeyError naturally.
+        # Must set on sys.modules["streamlit"] directly — another test file
+        # may have replaced it with a different MagicMock instance.
+        st_mock = sys.modules["streamlit"]
+        st_mock.secrets = {}
 
         with patch("boto3.client") as mock_boto:
             mock_boto.return_value = MagicMock()
-            client = public_loader.get_s3_client()
+            public_loader = self._load_public_loader()
+            public_loader.get_s3_client()
+            mock_boto.assert_called_with("s3")
 
+    def test_uses_secrets_when_available(self):
+        """
+        When st.secrets['aws'] is available, get_s3_client() should use
+        explicit credentials from secrets.
+        """
+        st_mock = sys.modules["streamlit"]
+        st_mock.secrets = {
+            "aws": {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+                "AWS_DEFAULT_REGION": "us-west-2",
+            }
+        }
+
+        public_loader = self._load_public_loader()
+
+        with patch("boto3.client") as mock_boto:
+            mock_boto.return_value = MagicMock()
+            public_loader.get_s3_client()
             mock_boto.assert_called_with(
                 "s3",
                 aws_access_key_id="AKIA_TEST",

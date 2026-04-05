@@ -40,6 +40,8 @@ from loaders.signal_loader import (
 )
 from loaders.db_loader import get_macro_snapshots
 from shared.formatters import format_pct, format_dollar, color_return, regime_label
+from shared.normalizers import to_decimal_scalar
+from shared.position_pnl import parse_positions_snapshot, enrich_positions
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -78,9 +80,8 @@ def _most_recent_trading_date(trades_df: pd.DataFrame | None) -> str | None:
 
 def _safe_column(df: pd.DataFrame, *candidates: str) -> str | None:
     """Return the first column name that exists in df."""
-    for c in candidates:
-        if c in df.columns:
-            return c
+    from loaders.utils import safe_column
+    return safe_column(df, *candidates)
     return None
 
 
@@ -93,11 +94,7 @@ def _safe_column(df: pd.DataFrame, *candidates: str) -> str | None:
 
 def _normalize_pct(val) -> float | None:
     """Normalize a percentage value to decimal form (0.05 for 5%)."""
-    try:
-        v = float(val)
-        return v / 100 if abs(v) > 2 else v
-    except (ValueError, TypeError):
-        return None
+    return to_decimal_scalar(val)
 
 
 def _render_pipeline_activity(
@@ -254,84 +251,17 @@ def _render_current_holdings(
             st.metric("Daily Alpha vs SPY", f"{alpha_norm*100:+.2f}%" if alpha_norm is not None else "—")
 
     # Positions table
-    positions_df = _parse_positions_snapshot(eod_df)
+    positions_df = parse_positions_snapshot(eod_df)
 
     if positions_df is not None and not positions_df.empty:
-        positions_df = _enrich_positions(positions_df, signals_data, trades_df)
+        sig_df = signals_to_df(signals_data) if signals_data else None
+        positions_df = enrich_positions(positions_df, sig_df, trades_df)
         _render_positions_table(positions_df)
     else:
         st.info("No positions data available.")
 
 
-def _parse_positions_snapshot(eod_df: pd.DataFrame | None) -> pd.DataFrame | None:
-    """Extract positions DataFrame from the latest eod_pnl snapshot column."""
-    if eod_df is None or eod_df.empty or "positions_snapshot" not in eod_df.columns:
-        return None
-    eod_copy = eod_df.copy()
-    eod_copy["date"] = pd.to_datetime(eod_copy["date"])
-    latest_row = eod_copy.iloc[-1]
-    try:
-        snapshot_raw = latest_row["positions_snapshot"]
-        if pd.notna(snapshot_raw) and snapshot_raw:
-            positions_data = json.loads(str(snapshot_raw))
-            if isinstance(positions_data, list):
-                return pd.DataFrame(positions_data)
-            elif isinstance(positions_data, dict):
-                return pd.DataFrame([positions_data])
-    except Exception as e:
-        logger.warning("Failed to parse positions snapshot: %s", e)
-    return None
-
-
-def _enrich_positions(
-    positions_df: pd.DataFrame,
-    signals_data: dict | None,
-    trades_df: pd.DataFrame | None,
-) -> pd.DataFrame:
-    """Merge positions with signals and trade history, compute P&L columns."""
-    if signals_data:
-        sig_df = signals_to_df(signals_data)
-        if not sig_df.empty and "ticker" in sig_df.columns and "ticker" in positions_df.columns:
-            positions_df = positions_df.merge(
-                sig_df[["ticker", "score", "signal", "conviction"]],
-                on="ticker", how="left", suffixes=("", "_signal"),
-            )
-
-    if trades_df is not None and not trades_df.empty:
-        action_col = _safe_column(trades_df, "action", "signal")
-        if action_col:
-            enter_trades = trades_df[trades_df[action_col].str.upper() == "ENTER"].copy()
-            if not enter_trades.empty and "ticker" in enter_trades.columns and "ticker" in positions_df.columns:
-                if "date" in enter_trades.columns:
-                    enter_trades["date"] = pd.to_datetime(enter_trades["date"])
-                    latest_entry = enter_trades.sort_values("date").groupby("ticker").last().reset_index()
-                    price_col = _safe_column(latest_entry, "price", "fill_price", "price_at_order")
-                    if price_col:
-                        positions_df = positions_df.merge(
-                            latest_entry[["ticker", price_col, "date"]].rename(
-                                columns={price_col: "entry_price", "date": "entry_date"}
-                            ),
-                            on="ticker", how="left",
-                        )
-
-    if "market_value" in positions_df.columns and "shares" in positions_df.columns:
-        positions_df["shares"] = pd.to_numeric(positions_df["shares"], errors="coerce")
-        positions_df["market_value"] = pd.to_numeric(positions_df["market_value"], errors="coerce")
-        positions_df["current_price"] = positions_df["market_value"] / positions_df["shares"]
-
-        if "entry_price" in positions_df.columns:
-            positions_df["entry_price"] = pd.to_numeric(positions_df["entry_price"], errors="coerce")
-            positions_df["unrealized_pnl"] = (
-                (positions_df["current_price"] - positions_df["entry_price"]) * positions_df["shares"]
-            )
-            positions_df["return_pct"] = positions_df["current_price"] / positions_df["entry_price"] - 1
-
-        if "entry_date" in positions_df.columns:
-            positions_df["days_held"] = (
-                pd.Timestamp.now() - pd.to_datetime(positions_df["entry_date"])
-            ).dt.days
-
-    return positions_df
+    # _parse_positions_snapshot and _enrich_positions moved to shared/position_pnl.py
 
 
 def _render_positions_table(positions_df: pd.DataFrame) -> None:
@@ -390,13 +320,9 @@ def _render_performance(eod_df: pd.DataFrame | None) -> None:
     if "daily_return_pct" not in eod_copy.columns or "daily_alpha_pct" not in eod_copy.columns:
         return
 
-    returns = pd.to_numeric(eod_copy["daily_return_pct"], errors="coerce").dropna()
-    alphas = pd.to_numeric(eod_copy["daily_alpha_pct"], errors="coerce").dropna()
-
-    if returns.abs().max() > 2:
-        returns = returns / 100
-    if alphas.abs().max() > 2:
-        alphas = alphas / 100
+    from shared.normalizers import to_decimal_series
+    returns = to_decimal_series(eod_copy["daily_return_pct"]).dropna()
+    alphas = to_decimal_series(eod_copy["daily_alpha_pct"]).dropna()
 
     # Direct NAV-based cumulative return (avoids daily chaining errors)
     nav_series = pd.to_numeric(eod_copy.get("portfolio_nav"), errors="coerce")
