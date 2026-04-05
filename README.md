@@ -42,9 +42,8 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 |------|---------|---------|
 | Home | 15 min | System health, today's snapshot, signals, market context |
 | Portfolio | 15 min | NAV vs SPY, daily alpha, drawdown, current positions |
-| Signals | 15 min | Full signal table with sub-scores, date picker, ticker detail |
+| Signals & Research | 15 min | Full signal table with sub-scores, ticker drilldown with score history, conviction, thesis timeline |
 | Signal Quality | 1 hr | Accuracy trends, score buckets, regime breakdown, weight history |
-| Research | 1 hr | Per-ticker score history, conviction timeline, thesis outcomes |
 | Backtester | 1 hr | Parameter sweep heatmap, attribution, weight recommendations |
 | Trade Log | 15 min | Full trade audit trail with filters and CSV export |
 | Predictor | 15 min | GBM predictions, hit rate, IC, calibration |
@@ -91,9 +90,8 @@ alpha-engine-dashboard/
 ├── app.py                    # Home page (Streamlit entry point)
 ├── pages/
 │   ├── 1_Portfolio.py
-│   ├── 2_Signals.py
+│   ├── 2_Signals_and_Research.py
 │   ├── 3_Signal_Quality.py
-│   ├── 4_Research.py
 │   ├── 5_Backtester.py
 │   ├── 6_Trade_Log.py
 │   ├── 7_Predictor.py

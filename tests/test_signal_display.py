@@ -1,7 +1,7 @@
 """
 tests/test_signal_display.py — Unit tests for signal row styling logic.
 
-Tests the _render_signal_display() function from pages/2_Signals.py.
+Tests the _render_signal_display() function from pages/2_Signals_and_Research.py.
 Verifies CSS styles are correctly applied based on signal type and veto status.
 """
 
@@ -18,7 +18,7 @@ from shared.constants import SIGNAL_COLORS, VETO_COLOR
 def _render_signal_display(row: pd.Series) -> list[str]:
     """Local copy of the function for testing without importing the full page module.
 
-    The real function lives in pages/2_Signals.py but that module has
+    The real function lives in pages/2_Signals_and_Research.py but that module has
     Streamlit side effects on import. This mirrors the implementation
     exactly so we can test the logic in isolation.
     """

@@ -91,9 +91,11 @@ Computed from full eod_pnl history:
 
 ---
 
-## Page 2: Signals (`pages/2_Signals.py`)
+## Page 2: Signals & Research (`pages/2_Signals_and_Research.py`)
 
-Answers: _what are all the signals today and why?_
+Answers: _what are all the signals today and why, and what does the research say about a specific ticker?_
+
+Merges the former Signals and Research pages. Signal table and sector ratings at the top; a ticker drilldown section below surfaces the former Research page content (full score history with sub-scores and signal markers, conviction history, performance outcomes, thesis timeline).
 
 ### Date Picker
 
@@ -108,15 +110,16 @@ Full universe from signals.json. Filterable by:
 
 Stale signals shown with ⚠ badge. Predictor direction shown as UP ↑ / FLAT → / DOWN ↓ in a `Prediction` column (blank if no prediction available); `Confidence` column shown only when ≥ 0.65.
 
-### Ticker Detail Expander
+### Ticker Drilldown
 
-Click any row to expand:
+Select a ticker below the signal table to surface:
 - Thesis summary paragraph
-- Sub-score horizontal bar chart (technical / news / research)
+- Sub-score horizontal bar chart (technical / news / research) — current snapshot
 - Predictor probability bar: `p_up` (green) / `p_flat` (gray) / `p_down` (red) stacked horizontal; badge showing modifier applied or skipped with reason
-- 30-day score history line chart (from `investment_thesis` table)
-- Signal history table (date, signal, score, conviction)
-- Performance outcomes if available in `score_performance` (✅/❌/⏳)
+- **Score history** (full): composite line (bold) + faint sub-score lines (technical/news/research) + signal markers (ENTER ▲ / EXIT ▼ / REDUCE ◆)
+- **Conviction history** line chart
+- **Performance outcomes** table from `score_performance` (score_date, composite_score, return_10d/30d vs SPY, beat_spy_10d/30d as ✅/❌/⏳)
+- **Thesis timeline** — expandable list of `thesis_summary` entries from `investment_thesis`, newest first
 
 ### Sector Ratings
 
@@ -174,48 +177,6 @@ Only renders when `predictor_outcomes` has ≥ 20 rows with `correct_5d` populat
 **Predictor Impact on Outcomes** — two bars: signals where predictor modifier was applied vs. not. Metric: `beat_spy_10d` rate per group. Source: join `predictor_outcomes` to `score_performance`.
 
 **IC Over Time** — rolling 20-day Pearson IC of `p_up - p_down` vs `actual_5d_return`. Dashed 0.05 reference line (minimum viable threshold).
-
----
-
-## Page 4: Research (`pages/4_Research.py`)
-
-Answers: _what is driving signal quality — technical, news, or research?_
-
-### Ticker Search
-
-Text input with selectbox autocomplete from `investment_thesis` distinct symbols. Default: top 10 by most recent score.
-
-### Charts
-
-**Score History**
-- Composite score line (bold)
-- Three faint sub-score lines: technical, news, research
-- Signal markers: ENTER ▲ green, EXIT ▼ red, REDUCE ◆ orange
-- Source: `investment_thesis` joined to `trades_full.csv`
-
-**Conviction History**
-- Line chart: rising=+1, stable=0, declining=-1
-
-### Performance Outcomes
-
-From `score_performance` for selected ticker:
-
-| Column | Meaning |
-|--------|---------|
-| Score Date | `score_date` |
-| Score | Score at time of signal |
-| Return 10d | `return_10d` |
-| SPY 10d | `spy_10d_return` |
-| Beat? 10d | ✅ / ❌ / ⏳ |
-| Return 30d | `return_30d` |
-| SPY 30d | `spy_30d_return` |
-| Beat? 30d | ✅ / ❌ / ⏳ |
-
-⏳ = outcome not yet populated (within 10/30 trading days of score_date).
-
-### Thesis Timeline
-
-Expandable list of `thesis_summary` entries from `investment_thesis` for selected ticker, ordered by date descending.
 
 ---
 
