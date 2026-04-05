@@ -189,6 +189,34 @@ Structured visualizations for Phase 2/3/4 backtester metrics. Parses sections fr
 
 ---
 
+## Page 4: System Health (`pages/4_System_Health.py`)
+
+Answers: _is the plumbing working?_
+
+Merges the former Data Inventory and Feature Store pages. Two tabs:
+
+### Modules & Data tab
+
+- **Module Health & Freshness** — freshness table for research, predictor_training, predictor_inference, executor, eod_reconcile. Status colored (ok/degraded/failed). Reads `health/{module}.json` from S3.
+- **Data Volume Growth** — dataset record counts (research.db tables + S3 object counts), cumulative trading days and cumulative trade records line charts.
+- **Feedback Loop Maturity** — optimizer progress table with status (Active/Collecting/Blocked/Deferred) and progress bars against each threshold.
+- **Data Manifests** — expandable JSON view of latest manifest per module. Reads `data_manifest/{module}/*.json`.
+- **Missing Data Alerts** — missing EOD trading days, failed/unknown modules, unresolved score_performance rows. Shows success banner when nominal.
+
+### Feature Store tab
+
+Pre-computed feature snapshots for GBM inference — freshness, coverage, and drift monitoring.
+
+- **Freshness** — latest snapshot date, age, schema version/hash from `features/{date}/schema_version.json`
+- **Coverage** — per-group table (Technical / Interaction / Macro / Alternative / Fundamental) with ticker count, feature count, last updated timestamp, null count, status
+- **Feature Catalog** — per-group expander listing each feature with description, source, refresh cadence, mean, std, nulls. Descriptions from `features/registry.json`.
+- **Feature Distributions** — summary stats table, histogram for selected feature, training baseline comparison with z-score drift flag
+- **Drift Detection** — reads `predictor/metrics/drift_{date}.json`
+- **Store vs Inline Usage** — latest predictions metric; full metric is in CloudWatch logs
+- **Recent Snapshots** — last 14 days of feature snapshots
+
+---
+
 ## Page 6: Execution (`pages/6_Execution.py`)
 
 Trade history and slippage monitoring. Merges the former Trade Log and Slippage pages.

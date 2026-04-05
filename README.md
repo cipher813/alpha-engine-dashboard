@@ -46,6 +46,7 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 | Analysis | 1 hr | Signal accuracy, backtester runs, and pipeline evaluation (lift + component diagnostics + self-adjustment) |
 | Execution | 15 min | Trade log (filters + CSV export) and slippage monitor (fill price vs order price) |
 | Predictor | 15 min | GBM predictions, hit rate, IC, calibration |
+| System Health | 15 min | Module freshness, data volume, feedback loop maturity, feature store coverage + drift |
 
 ---
 
@@ -90,6 +91,7 @@ alpha-engine-dashboard/
 │   ├── 1_Portfolio.py
 │   ├── 2_Signals_and_Research.py
 │   ├── 3_Analysis.py
+│   ├── 4_System_Health.py
 │   ├── 6_Execution.py
 │   └── 7_Predictor.py
 ├── loaders/
@@ -188,7 +190,7 @@ If memory issues recur, options to reduce footprint:
 1. **Upgrade to t3.small** (2GB RAM, ~$6/month more) — simplest, doubles headroom
 2. **Static public site** — render portfolio chart as static HTML via cron, serve with nginx directly (zero RAM for public page)
 3. **Merge into single Streamlit app** — add public pages to dashboard, use Cloudflare Access path rules to protect `/dashboard/*`. Requires refactoring the public app's custom CSS/layout into conditional page logic.
-4. **Lower `_MAX_QUERY_ROWS`** — reduce from 50,000 if tables grow large. Monitor with Data Inventory page.
+4. **Lower `_MAX_QUERY_ROWS`** — reduce from 50,000 if tables grow large. Monitor with System Health page.
 
 ---
 

@@ -87,7 +87,7 @@ cd public && streamlit run app.py
 | File | Purpose |
 |------|---------|
 | `app.py` | Home page (system health) |
-| `pages/1_Portfolio.py` - `pages/8_Slippage.py` | Dashboard pages |
+| `pages/1_Portfolio.py` - `pages/7_Predictor.py` | Dashboard pages |
 | `loaders/s3_loader.py` | S3 downloads with TTL caching |
 | `loaders/signal_loader.py` | signals.json parsing |
 | `charts/` | Plotly chart builders |
