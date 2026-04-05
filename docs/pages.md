@@ -217,11 +217,17 @@ Shows the latest backtester run output.
 
 ---
 
-## Page 6: Trade Log (`pages/6_Trade_Log.py`)
+## Page 6: Execution (`pages/6_Execution.py`)
+
+Trade history and slippage monitoring. Merges the former Trade Log and Slippage pages.
+
+A recent-activity summary sits above two tabs — **Trade Log** and **Slippage Monitor**.
+
+### Trade Log tab
 
 Full audit trail of every order placed.
 
-### Filters
+#### Filters
 
 | Filter | Type |
 |--------|------|
@@ -231,7 +237,7 @@ Full audit trail of every order placed.
 | Market regime | Multiselect |
 | Min score | Slider (0–100) |
 
-### Trade Table
+#### Trade Table
 
 Paginated at 25 rows/page. Columns from `trades_full.csv`:
 
@@ -239,7 +245,7 @@ Paginated at 25 rows/page. Columns from `trades_full.csv`:
 
 Download button exports filtered view as CSV.
 
-### Trade Summary Stats
+#### Trade Summary Stats
 
 Aggregated from filtered rows:
 - Total ENTER / EXIT / REDUCE counts
@@ -248,11 +254,24 @@ Aggregated from filtered rows:
 - Most active sectors (top 3)
 - Avg position size % NAV
 
-### Outcome Join
+#### Outcome Join
 
 For ENTER trades with a matching `score_performance` row (symbol + date):
 - Shows `beat_spy_10d` and `beat_spy_30d` inline
 - ✅ beat SPY / ❌ did not / ⏳ outcome pending
+
+### Slippage Monitor tab
+
+Execution quality by comparing `price_at_order` vs `fill_price`. Positive slippage = unfavorable (normalized across buy/sell directions).
+
+- **Summary metrics**: trade count with fill data, mean / median / P95 slippage (bps), % unfavorable
+- **Distribution histogram** with a zero reference line
+- **By action** stats table (mean / median / std / count per action)
+- **By market regime** stats table
+- **Daily mean slippage** line chart over time
+- **Worst 20 slippage events** table
+
+Gracefully shows an info banner when `fill_price` / `price_at_order` columns are missing (executor has not yet run with fill confirmation).
 
 ---
 

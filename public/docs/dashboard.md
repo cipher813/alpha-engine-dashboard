@@ -33,11 +33,10 @@ at dashboard.nousergon.ai (protected by Cloudflare Access).
 |------|---------------|
 | **Home** | System health indicators, today's snapshot, signal table |
 | **Portfolio** | NAV vs SPY chart, drawdown, positions, sector allocation |
-| **Signals** | Full signal table with date picker, ticker detail, sector ratings |
+| **Signals & Research** | Full signal table with date picker, sector ratings, and ticker drilldown surfacing score history, conviction, thesis timeline |
 | **Signal Quality** | Accuracy trends, score buckets, regime breakdown |
-| **Research** | Per-ticker score history, conviction timeline, thesis viewer |
 | **Backtester** | Parameter sweep heatmap, attribution, weight recommendations |
-| **Trade Log** | Full trade audit trail with filters and CSV export |
+| **Execution** | Trade log (filters + CSV export) and slippage monitor |
 | **Predictor** | GBM predictions, hit rate, IC, calibration, disagreements |
 
 ---

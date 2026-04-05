@@ -45,9 +45,8 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 | Signals & Research | 15 min | Full signal table with sub-scores, ticker drilldown with score history, conviction, thesis timeline |
 | Signal Quality | 1 hr | Accuracy trends, score buckets, regime breakdown, weight history |
 | Backtester | 1 hr | Parameter sweep heatmap, attribution, weight recommendations |
-| Trade Log | 15 min | Full trade audit trail with filters and CSV export |
+| Execution | 15 min | Trade log (filters + CSV export) and slippage monitor (fill price vs order price) |
 | Predictor | 15 min | GBM predictions, hit rate, IC, calibration |
-| Slippage | 15 min | Execution quality: fill price vs order price, by action/regime |
 
 ---
 
@@ -93,9 +92,8 @@ alpha-engine-dashboard/
 │   ├── 2_Signals_and_Research.py
 │   ├── 3_Signal_Quality.py
 │   ├── 5_Backtester.py
-│   ├── 6_Trade_Log.py
-│   ├── 7_Predictor.py
-│   └── 8_Slippage.py
+│   ├── 6_Execution.py
+│   └── 7_Predictor.py
 ├── loaders/
 │   ├── s3_loader.py          # S3 download helpers with TTL caching
 │   ├── db_loader.py          # SQLite read helpers (research.db)
