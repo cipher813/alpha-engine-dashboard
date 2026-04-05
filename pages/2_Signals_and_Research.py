@@ -32,8 +32,11 @@ from loaders.db_loader import (
     query_research_db,
 )
 from loaders.s3_loader import load_predictions_json, load_predictor_params
-from shared.constants import SIGNAL_COLORS, VETO_COLOR
+from shared.constants import SIGNAL_COLORS, VETO_COLOR, get_thresholds
 from shared.formatters import regime_label
+
+_TH = get_thresholds()
+_VETO_CONF_DEFAULT = _TH["veto_confidence"]
 
 st.set_page_config(page_title="Signals & Research — Alpha Engine", layout="wide")
 
@@ -222,7 +225,7 @@ with st.spinner(f"Loading signals for {selected_date}..."):
     predictions = load_predictions_json(selected_date)
     predictor_params = load_predictor_params()
 
-veto_threshold = predictor_params.get("veto_confidence", 0.65)
+veto_threshold = predictor_params.get("veto_confidence", _VETO_CONF_DEFAULT)
 
 if not signals_data:
     st.warning(f"No signals available for {selected_date}.")
@@ -321,7 +324,7 @@ if predictions:
         lambda t: (predictions.get(t) or {}).get("prediction_confidence")
     )
     filtered_df.loc[
-        pd.to_numeric(filtered_df["Confidence"], errors="coerce").fillna(0) < 0.65,
+        pd.to_numeric(filtered_df["Confidence"], errors="coerce").fillna(0) < veto_threshold,
         "Confidence"
     ] = None
 
@@ -426,7 +429,7 @@ if selected_ticker:
         pred_fig = _predictor_probability_chart(pred, selected_ticker)
         st.plotly_chart(pred_fig, use_container_width=True)
 
-        if confidence >= 0.65:
+        if confidence >= veto_threshold:
             p_up = pred.get("p_up", 0) or 0
             p_down = pred.get("p_down", 0) or 0
             modifier = (p_up - p_down) * 10.0 * confidence
@@ -438,7 +441,7 @@ if selected_ticker:
         else:
             st.caption(
                 f"Predictor: {direction or '—'} (confidence {confidence:.0%}) — "
-                f"Modifier skipped (confidence < 65%)"
+                f"Modifier skipped (confidence < {veto_threshold:.0%})"
             )
 
     # --- Full score history from research DB (with sub-scores + signal markers) ---

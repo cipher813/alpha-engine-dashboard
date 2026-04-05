@@ -18,6 +18,13 @@ from loaders.s3_loader import load_predictions_json, load_predictor_metrics, loa
 from loaders.db_loader import get_predictor_outcomes
 from loaders.signal_loader import get_available_signal_dates
 from charts.predictor_chart import make_model_drift_chart, make_feature_importance_chart
+from shared.constants import get_thresholds
+
+_TH = get_thresholds()
+_VETO_CONF = _TH["veto_confidence"]
+_MODEL_HEALTHY = _TH["model_healthy"]
+_MODEL_DEGRADED = _TH["model_degraded"]
+_ACC_BASELINE = _TH["accuracy_baseline"]
 
 st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
 
@@ -35,9 +42,9 @@ if not metrics:
     st.stop()
 
 hit_rate = metrics.get("hit_rate_30d_rolling", 0.0) or 0.0
-if hit_rate >= 0.52:
+if hit_rate >= _MODEL_HEALTHY:
     badge = "🟢 Healthy"
-elif hit_rate >= 0.48:
+elif hit_rate >= _MODEL_DEGRADED:
     badge = "🟡 Degraded"
 else:
     badge = "🔴 Below Threshold"
@@ -205,13 +212,13 @@ else:
     rows = []
     for ticker, pred in predictions.items():
         conf = pred.get("prediction_confidence") or 0.0
-        if not show_all and conf < 0.65:
+        if not show_all and conf < _VETO_CONF:
             continue
         direction = pred.get("predicted_direction", "—")
         arrow = {"UP": "↑", "DOWN": "↓", "FLAT": "→"}.get(direction, "")
         p_up = pred.get("p_up") or 0.0
         p_down = pred.get("p_down") or 0.0
-        modifier = (p_up - p_down) * 10.0 * conf if conf >= 0.65 else 0.0
+        modifier = (p_up - p_down) * 10.0 * conf if conf >= _VETO_CONF else 0.0
         sig = universe.get(ticker, {})
         rows.append({
             "Ticker": ticker,
@@ -345,7 +352,7 @@ else:
                 textposition="outside",
                 marker_color="#2ca02c",
             ))
-            bucket_fig.add_hline(y=0.5, line_dash="dash", line_color="gray")
+            bucket_fig.add_hline(y=_ACC_BASELINE, line_dash="dash", line_color="gray")
             bucket_fig.update_layout(
                 title="Hit Rate by Confidence Bucket",
                 xaxis_title="Confidence Bucket",
@@ -427,7 +434,7 @@ if predictions and signals_data:
         if not pred:
             continue
         conf = pred.get("prediction_confidence") or 0.0
-        if conf < 0.65:
+        if conf < _VETO_CONF:
             continue
         direction = pred.get("predicted_direction", "")
         signal = ticker_data.get("signal", "")

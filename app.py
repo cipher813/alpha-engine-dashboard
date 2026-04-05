@@ -36,8 +36,12 @@ from loaders.s3_loader import (
     load_predictor_metrics,
     load_trades_full,
 )
+from shared.constants import get_thresholds
 from shared.formatters import format_dollar, regime_label
 from shared.normalizers import to_decimal_scalar, to_decimal_series
+
+_TH = get_thresholds()
+_VETO_CONF_DEFAULT = _TH["veto_confidence"]
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -136,7 +140,7 @@ def _render_todays_activity(
     vetoes = 0
     if predictions_data:
         predictor_params = _fetch_s3_json(_research_bucket(), "config/predictor_params.json") or {}
-        veto_threshold = predictor_params.get("veto_confidence", 0.65)
+        veto_threshold = predictor_params.get("veto_confidence", _VETO_CONF_DEFAULT)
         for pred in predictions_data.values():
             if pred.get("predicted_direction") == "DOWN" and (pred.get("prediction_confidence") or 0) >= veto_threshold:
                 vetoes += 1

@@ -26,7 +26,13 @@ from charts.portfolio_chart import make_sector_allocation_chart, make_sector_rot
 from shared.formatters import format_pct, format_dollar, color_return
 from shared.normalizers import to_decimal_series
 from shared.accuracy_metrics import compute_drawdown, compute_sharpe, find_drawdown_episodes
+from shared.constants import get_thresholds
 from shared.position_pnl import parse_positions_snapshot, enrich_positions
+
+_TH = get_thresholds()
+_HHI_DIVERSIFIED = _TH["hhi_diversified"]
+_HHI_CONCENTRATED = _TH["hhi_concentrated"]
+_SHARPE_MIN_ROWS = int(_TH["sharpe_min_rows"])
 
 st.set_page_config(page_title="Portfolio — Alpha Engine", layout="wide")
 
@@ -311,10 +317,10 @@ if positions_df is not None and not positions_df.empty:
             if total_val > 0:
                 weight_pcts = weights / total_val
                 hhi = (weight_pcts ** 2).sum()
-                if hhi < 0.15:
+                if hhi < _HHI_DIVERSIFIED:
                     hhi_label = "Diversified"
                     hhi_color = "green"
-                elif hhi < 0.25:
+                elif hhi < _HHI_CONCENTRATED:
                     hhi_label = "Moderate"
                     hhi_color = "orange"
                 else:
@@ -355,7 +361,7 @@ else:
 st.header("Portfolio Summary Stats")
 
 total_return = ((1 + daily_ret).prod() - 1)
-sharpe = _compute_sharpe(daily_ret)
+sharpe = _compute_sharpe(daily_ret, min_rows=_SHARPE_MIN_ROWS)
 max_drawdown = drawdown.min()
 best_day = daily_ret.max()
 worst_day = daily_ret.min()
@@ -374,7 +380,7 @@ with stat_col2:
     if sharpe is not None:
         st.metric("Sharpe Ratio", f"{sharpe:.2f}")
     else:
-        st.metric("Sharpe Ratio", f"Need ≥30 days ({len(daily_ret)} available)")
+        st.metric("Sharpe Ratio", f"Need ≥{_SHARPE_MIN_ROWS} days ({len(daily_ret)} available)")
 
 with stat_col3:
     st.metric("Max Drawdown", format_pct(max_drawdown))
