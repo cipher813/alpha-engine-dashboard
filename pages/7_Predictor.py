@@ -308,6 +308,59 @@ else:
 st.divider()
 
 # ---------------------------------------------------------------------------
+# Hit rate by confidence bucket (moved from former Signal Quality page)
+# ---------------------------------------------------------------------------
+
+st.subheader("Hit Rate by Confidence Bucket")
+st.caption("Validates that confidence is monotonically predictive. Non-monotonic = calibration issue.")
+
+if outcomes_df.empty:
+    st.info("No predictor outcome data available yet.")
+else:
+    resolved_bucket = outcomes_df[outcomes_df["correct_5d"].notna()].copy()
+    if len(resolved_bucket) < 20:
+        st.info(
+            f"Requires ≥20 resolved predictions (currently {len(resolved_bucket)}). "
+            "The more fine-grained Confidence Calibration chart below needs ≥100."
+        )
+    else:
+        bins = [0.65, 0.75, 0.85, 1.01]
+        labels = ["0.65–0.75", "0.75–0.85", "0.85–1.0"]
+        resolved_bucket["conf_bucket"] = pd.cut(
+            pd.to_numeric(resolved_bucket["prediction_confidence"], errors="coerce"),
+            bins=bins,
+            labels=labels,
+            right=False,
+        )
+        bucket_stats = (
+            resolved_bucket.groupby("conf_bucket", observed=True)["correct_5d"]
+            .agg(["mean", "count"])
+            .reset_index()
+        )
+        if not bucket_stats.empty:
+            bucket_fig = go.Figure(go.Bar(
+                x=bucket_stats["conf_bucket"].astype(str),
+                y=bucket_stats["mean"],
+                text=[f"{v:.0%} (n={n})" for v, n in zip(bucket_stats["mean"], bucket_stats["count"])],
+                textposition="outside",
+                marker_color="#2ca02c",
+            ))
+            bucket_fig.add_hline(y=0.5, line_dash="dash", line_color="gray")
+            bucket_fig.update_layout(
+                title="Hit Rate by Confidence Bucket",
+                xaxis_title="Confidence Bucket",
+                yaxis_title="Hit Rate",
+                yaxis=dict(tickformat=".0%", range=[0, 1]),
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                height=300,
+                margin=dict(t=40, b=30, l=60, r=20),
+            )
+            st.plotly_chart(bucket_fig, use_container_width=True)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
 # Confidence calibration chart
 # ---------------------------------------------------------------------------
 

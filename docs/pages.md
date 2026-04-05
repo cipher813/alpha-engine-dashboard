@@ -303,12 +303,28 @@ Full universe from `predictions/latest.json`, sorted by `p_up - p_down` descendi
 | Score modifier | Points applied to technical score (`±` value or `—` if gate not met) |
 | Current rating | From today's signals.json |
 
+### Model Performance Trend
+
+Rolling hit rate chart from `predictor_outcomes` (requires ≥60 resolved predictions). Source: `charts/predictor_chart.make_model_drift_chart`.
+
+### Model Mode History
+
+Weekly IC by model type (MSE / Lambdarank / Ensemble) with star markers on the selected mode per training run. Source: `predictor/metrics/mode_history.json`.
+
+### Feature Importance
+
+SHAP-based feature importance bar chart with IC overlay, plus noise candidate list. Source: `predictor/metrics/feature_importance.json`.
+
 ### Prediction History — Ticker Drilldown
 
 Selectbox: any ticker in `predictor_outcomes`. Charts:
 - Line: `p_up - p_down` over time (net directional signal, range −1 to +1)
 - Outcome markers on resolution date: ✅ correct / ❌ wrong
 - Running accuracy: `X correct of Y predictions (Z%)`
+
+### Hit Rate by Confidence Bucket
+
+Grouped bar chart with 0.65–0.75, 0.75–0.85, 0.85–1.0 buckets showing hit rate and sample count. Validates that confidence is monotonically predictive. Moved here from the former Signal Quality page in Phase 6. Requires ≥20 resolved predictions.
 
 ### Confidence Calibration Chart
 
