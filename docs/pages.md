@@ -4,43 +4,46 @@ Per-page field and chart documentation.
 
 ---
 
-## Home (`app.py`)
+## Overview (`app.py`)
 
-Entry point. Answers: _is everything healthy right now?_
+Entry point. Designed for triage, not analysis — answer _"is everything working?"_ in 10 seconds. Detail pages handle deep dives.
 
-### System Health
+### Pipeline Status
 
-Five status indicators (🟢/🟡/🔴):
+One compact row of module badges (🟢 ok / 🟡 degraded / 🔴 failed / ⚪ unknown) for research, predictor_training, predictor_inference, executor, eod_reconcile. Shows age since last success. Reads `health/{module}.json` from S3.
 
-| Indicator | Green | Yellow | Red |
-|-----------|-------|--------|-----|
-| Research Lambda | signals.json found today | Found yesterday | Not found in 2+ days |
-| IB Gateway | eod_pnl row today | Row yesterday | No row in 3+ days |
-| Backtester | Ran within 7 days | Ran within 30 days | Older than 30 days |
-| Signal Quality | <10% stale signals | 10–30% stale | >30% stale |
-| Predictor | metrics/latest.json today, hit_rate_30d > 0.52 | Today but hit rate 0.48–0.52 | Not found today or hit rate < 0.48 |
+### Today's Activity
 
-### Today's Snapshot
+Five metric cards: Entries Approved, Entries Blocked, Exits / Covers, Vetoes, Trades Executed Today.
+
+- Approved / blocked / exits from today's `order_book_summary.json`
+- Vetoes counted from `predictions/{date}.json` using the current veto_confidence threshold from `config/predictor_params.json`
+- Trades count from `trades_full.csv` filtered to today's date
+
+### Key Metrics
+
+Four KPI cards, no charts:
 
 | Card | Source |
 |------|--------|
 | Portfolio NAV | `eod_pnl.portfolio_nav` (most recent row) |
-| Daily Return | `eod_pnl.daily_return_pct` |
-| vs SPY (Alpha) | `eod_pnl.daily_alpha_pct` |
-| Signal Count | ENTER/EXIT/HOLD counts from today's signals.json |
-
-### Today's Signals
-
-Buy candidates from signals.json sorted by score descending. Color coded by signal type:
-
-- ENTER — green (`#d4edda`)
-- EXIT — red (`#f8d7da`)
-- REDUCE — orange (`#fff3cd`)
-- HOLD — gray (`#f8f9fa`)
+| Daily Alpha vs SPY | `eod_pnl.daily_alpha_pct` (normalized to decimal) |
+| Cumulative Alpha | `NAV[-1]/NAV[0] − SPY[-1]/SPY[0]` (falls back to `sum(daily_alpha_pct)`) |
+| Model Hit Rate (30d) | `predictor/metrics/latest.json.hit_rate_30d_rolling` |
 
 ### Market Context
 
 Regime, VIX, 10yr yield from `macro_snapshots` for today's date.
+
+### Alerts
+
+Only shown when non-empty:
+
+- Failed modules (from health JSON)
+- Modules with no health status
+- Stale modules (last success > 48h)
+- Current drawdown ≤ −5%
+- Latest recent S3 error
 
 ---
 

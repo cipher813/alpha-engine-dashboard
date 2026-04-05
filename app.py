@@ -1,47 +1,43 @@
 """
-Alpha Engine Dashboard — Public Home Page.
-Entry point for the Streamlit multi-page app.
+Alpha Engine Dashboard — Overview (home page).
+
+Entry point for the Streamlit multi-page app. Designed for triage, not analysis:
+answer "is everything working?" in 10 seconds. Detail pages handle the rest.
 
 Layout (top to bottom):
-  1. Pipeline Activity — research picks, predictor vetoes, risk guard blocks, market status
-  2. Current Holdings — NAV, per-position detail with P&L
-  3. Alpha Performance — cumulative alpha chart, summary stats, market context
+  1. Status Banner      — pipeline module health (green/yellow/red)
+  2. Today's Activity   — compact activity feed (approvals, vetoes, trades)
+  3. Key Metrics        — NAV, Daily Alpha, Cumulative Alpha, Model Hit Rate
+  4. Market Context     — regime, VIX, 10yr yield (single row)
+  5. Alerts             — only shown when non-empty
 """
 
-import json
 import logging
-import sys
 import os
-from datetime import date, datetime, timedelta
-
-logger = logging.getLogger(__name__)
+import sys
+from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
 
-# Ensure project root is on sys.path for imports
+logger = logging.getLogger(__name__)
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from loaders.s3_loader import (
-    load_config,
-    load_eod_pnl,
-    load_signals_json,
-    load_trades_full,
-    load_predictor_metrics,
-    load_predictor_params,
-    load_predictions_json,
-    load_population_json,
-    load_order_book_summary,
-    get_recent_s3_errors,
-)
-from loaders.signal_loader import (
-    signals_to_df,
-    get_signal_counts,
-)
 from loaders.db_loader import get_macro_snapshots
-from shared.formatters import format_pct, format_dollar, color_return, regime_label
-from shared.normalizers import to_decimal_scalar
-from shared.position_pnl import parse_positions_snapshot, enrich_positions
+from loaders.s3_loader import (
+    _fetch_s3_json,
+    _research_bucket,
+    _trades_bucket,
+    get_recent_s3_errors,
+    load_eod_pnl,
+    load_order_book_summary,
+    load_predictions_json,
+    load_predictor_metrics,
+    load_trades_full,
+)
+from shared.formatters import format_dollar, regime_label
+from shared.normalizers import to_decimal_scalar, to_decimal_series
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -54,318 +50,181 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _is_market_open() -> bool:
-    """Return True if US market is currently open (9:30 AM - 4:00 PM ET, weekdays)."""
-    from zoneinfo import ZoneInfo
-    now_et = datetime.now(ZoneInfo("US/Eastern"))
-    if now_et.weekday() >= 5:  # weekend
-        return False
-    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
-    return market_open <= now_et <= market_close
-
-
-def _most_recent_trading_date(trades_df: pd.DataFrame | None) -> str | None:
-    """Return the most recent date with trades, or None."""
-    if trades_df is None or trades_df.empty or "date" not in trades_df.columns:
-        return None
-    dates = pd.to_datetime(trades_df["date"]).dt.date.unique()
-    return str(max(dates)) if len(dates) > 0 else None
-
-
-def _safe_column(df: pd.DataFrame, *candidates: str) -> str | None:
-    """Return the first column name that exists in df."""
-    from loaders.utils import safe_column
-    return safe_column(df, *candidates)
-    return None
-
-
-
 
 # ---------------------------------------------------------------------------
-# Section renderers (extracted from main for readability)
+# Data loaders
 # ---------------------------------------------------------------------------
 
 
-def _normalize_pct(val) -> float | None:
-    """Normalize a percentage value to decimal form (0.05 for 5%)."""
-    return to_decimal_scalar(val)
+HEALTH_MODULES = [
+    ("research", "research"),
+    ("predictor_training", "research"),
+    ("predictor_inference", "research"),
+    ("executor", "research"),
+    ("eod_reconcile", "trades"),
+]
 
 
-def _render_pipeline_activity(
-    population_data: dict | None,
-    predictions_data: dict,
+@st.cache_data(ttl=900)
+def _load_module_health() -> list[dict]:
+    """Load health/{module}.json for each pipeline module."""
+    now = datetime.utcnow()
+    rows = []
+    for module_name, bucket_key in HEALTH_MODULES:
+        bucket = _research_bucket() if bucket_key == "research" else _trades_bucket()
+        health = _fetch_s3_json(bucket, f"health/{module_name}.json")
+
+        if health is None:
+            rows.append({"module": module_name, "status": "unknown", "age_hrs": None, "error": None})
+            continue
+
+        last_success = health.get("last_success")
+        age_hrs = None
+        if last_success:
+            try:
+                last_dt = datetime.fromisoformat(last_success.replace("Z", "+00:00")).replace(tzinfo=None)
+                age_hrs = (now - last_dt).total_seconds() / 3600
+            except (ValueError, TypeError):
+                pass
+
+        rows.append({
+            "module": module_name,
+            "status": health.get("status", "unknown"),
+            "age_hrs": age_hrs,
+            "error": health.get("error"),
+        })
+    return rows
+
+
+def _status_icon(status: str) -> str:
+    if status == "ok":
+        return "🟢"
+    if status == "degraded":
+        return "🟡"
+    if status == "failed":
+        return "🔴"
+    return "⚪"
+
+
+# ---------------------------------------------------------------------------
+# Section renderers
+# ---------------------------------------------------------------------------
+
+
+def _render_status_banner(health_rows: list[dict]) -> None:
+    """One compact row with colored badges for each module."""
+    cols = st.columns(len(health_rows))
+    for col, row in zip(cols, health_rows):
+        with col:
+            icon = _status_icon(row["status"])
+            age = row.get("age_hrs")
+            age_str = f"{age:.0f}h ago" if age is not None else "—"
+            st.metric(f"{icon} {row['module']}", age_str, delta=row["status"], delta_color="off")
+
+
+def _render_todays_activity(
     order_book_summary: dict | None,
+    predictions_data: dict,
     trades_df: pd.DataFrame | None,
 ) -> None:
-    """Section 1: Research population, predictor vetoes, risk guard, trades."""
-    st.header("Pipeline Activity")
+    """Compact summary — entries, exits, vetoes, trades. Metric cards only."""
+    approved = len(order_book_summary.get("entries_approved", [])) if order_book_summary else 0
+    blocked = len(order_book_summary.get("entries_blocked", [])) if order_book_summary else 0
+    exits = len(order_book_summary.get("exits", [])) if order_book_summary else 0
 
-    # --- Research Population (Weekly) ---
-    st.subheader("Research Population (Weekly)")
-    if population_data and population_data.get("population"):
-        pop = population_data["population"]
-        pop_date = population_data.get("date", "unknown")
-        regime = population_data.get("market_regime", "unknown")
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Market Regime", regime_label(regime))
-        with c2:
-            st.metric("Universe Size", str(len(pop)))
-        with c3:
-            st.metric("Last Refreshed", pop_date)
-
-        pop_df = pd.DataFrame(pop)
-        display_cols = [c for c in ["ticker", "sector", "long_term_rating", "conviction", "entry_date"]
-                        if c in pop_df.columns]
-        if display_cols:
-            pop_display = pop_df[display_cols].sort_values("sector")
-            st.dataframe(pop_display, use_container_width=True, hide_index=True)
-    else:
-        st.info("Population data not available. Research pipeline may not have run yet.")
-
-    # --- Predictor Vetoes (Daily) ---
-    st.subheader("Predictor Vetoes (Daily)")
+    # Count high-confidence vetoes
+    vetoes = 0
     if predictions_data:
-        pred_list = list(predictions_data.values())
-        if population_data and population_data.get("population"):
-            pop_tickers = {p["ticker"] for p in population_data["population"]}
-            pred_list = [p for p in pred_list if p.get("ticker") in pop_tickers]
+        predictor_params = _fetch_s3_json(_research_bucket(), "config/predictor_params.json") or {}
+        veto_threshold = predictor_params.get("veto_confidence", 0.65)
+        for pred in predictions_data.values():
+            if pred.get("predicted_direction") == "DOWN" and (pred.get("prediction_confidence") or 0) >= veto_threshold:
+                vetoes += 1
 
-        vetoed = [p for p in pred_list if p.get("gbm_veto")]
-        if vetoed:
-            veto_df = pd.DataFrame(vetoed)[["ticker", "predicted_alpha", "combined_rank"]]
-            veto_df["predicted_alpha"] = veto_df["predicted_alpha"].apply(
-                lambda x: f"{x*100:+.2f}%" if pd.notna(x) else "—"
-            )
-            veto_df.columns = ["Ticker", "Predicted Alpha", "Rank"]
-            st.warning(f"{len(vetoed)} ticker(s) vetoed — negative predicted alpha + bottom-half rank")
-            st.dataframe(veto_df, use_container_width=True, hide_index=True)
-        else:
-            st.success(f"No vetoes today ({len(pred_list)} tickers predicted)")
-    else:
-        st.info("Predictor data not available for today.")
-
-    # --- Risk Guard (Daily) ---
-    st.subheader("Risk Guard (Daily)")
-    if order_book_summary:
-        approved = order_book_summary.get("entries_approved", [])
-        blocked = order_book_summary.get("entries_blocked", [])
-        exits = order_book_summary.get("exits", [])
-        covers = order_book_summary.get("covers", [])
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Approved", str(len(approved)))
-        with c2:
-            st.metric("Blocked", str(len(blocked)))
-        with c3:
-            st.metric("Exits", str(len(exits)))
-        with c4:
-            st.metric("Covers", str(len(covers)))
-
-        if approved:
-            st.success("Approved entries: " + ", ".join(a["ticker"] for a in approved))
-        if blocked:
-            blocked_df = pd.DataFrame(blocked)
-            blocked_df.columns = ["Ticker", "Reason"]
-            st.dataframe(blocked_df, use_container_width=True, hide_index=True)
-        if covers:
-            st.warning("Short covers: " + ", ".join(c["ticker"] for c in covers))
-    else:
-        st.info("Order book summary not available for today.")
-
-    # --- Trades / Order Book ---
-    st.subheader("Trades" if not _is_market_open() else "Order Book (Market Open)")
+    # Trades executed today
+    trades_today = 0
     if trades_df is not None and not trades_df.empty and "date" in trades_df.columns:
-        trades_df_copy = trades_df.copy()
-        trades_df_copy["date"] = pd.to_datetime(trades_df_copy["date"]).dt.date
+        trades_df = trades_df.copy()
+        trades_df["date"] = pd.to_datetime(trades_df["date"]).dt.date
+        trades_today = int((trades_df["date"] == date.today()).sum())
 
-        if _is_market_open():
-            if order_book_summary:
-                approved = order_book_summary.get("entries_approved", [])
-                if approved:
-                    st.info("Pending entries: " + ", ".join(a["ticker"] for a in approved))
-                else:
-                    st.info("No pending entries in order book")
-            else:
-                st.info("No order book data available")
-        else:
-            recent_date = _most_recent_trading_date(trades_df)
-            if recent_date:
-                recent_trades = trades_df_copy[trades_df_copy["date"] == date.fromisoformat(recent_date)]
-                if not recent_trades.empty:
-                    action_col = _safe_column(recent_trades, "action", "signal")
-                    display_cols = ["ticker"]
-                    if action_col:
-                        display_cols.append(action_col)
-                    st.caption(f"Trades from {recent_date}")
-                    st.dataframe(
-                        recent_trades[display_cols].reset_index(drop=True),
-                        use_container_width=True, hide_index=True,
-                    )
-                else:
-                    st.info("No recent trades.")
-            else:
-                st.info("No trade history available.")
-    else:
-        st.info("Trade data not available.")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Entries Approved", approved)
+    c2.metric("Entries Blocked", blocked)
+    c3.metric("Exits / Covers", exits)
+    c4.metric("Vetoes", vetoes)
+    c5.metric("Trades Executed Today", trades_today)
 
 
-def _render_current_holdings(
-    eod_df: pd.DataFrame | None,
-    signals_data: dict | None,
-    trades_df: pd.DataFrame | None,
-) -> None:
-    """Section 2: Portfolio NAV, position table with P&L."""
-    st.header("Current Holdings")
-
-    # Portfolio NAV
-    if eod_df is not None and not eod_df.empty:
-        eod_df_copy = eod_df.copy()
-        eod_df_copy["date"] = pd.to_datetime(eod_df_copy["date"])
-        today_rows = eod_df_copy[eod_df_copy["date"].dt.date == date.today()]
-        if not today_rows.empty:
-            latest_row = today_rows.iloc[-1]
-        elif not eod_df_copy.empty:
-            latest_row = eod_df_copy.iloc[-1]
-        else:
-            latest_row = None
-
-        nav = latest_row.get("portfolio_nav") if latest_row is not None else None
-        daily_ret_norm = _normalize_pct(latest_row.get("daily_return_pct")) if latest_row is not None else None
-        alpha_norm = _normalize_pct(latest_row.get("daily_alpha_pct")) if latest_row is not None else None
-
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Portfolio NAV", format_dollar(nav) if nav else "—")
-        with c2:
-            st.metric("Daily Return", f"{daily_ret_norm*100:+.2f}%" if daily_ret_norm is not None else "—")
-        with c3:
-            st.metric("Daily Alpha vs SPY", f"{alpha_norm*100:+.2f}%" if alpha_norm is not None else "—")
-
-    # Positions table
-    positions_df = parse_positions_snapshot(eod_df)
-
-    if positions_df is not None and not positions_df.empty:
-        sig_df = signals_to_df(signals_data) if signals_data else None
-        positions_df = enrich_positions(positions_df, sig_df, trades_df)
-        _render_positions_table(positions_df)
-    else:
-        st.info("No positions data available.")
-
-
-    # _parse_positions_snapshot and _enrich_positions moved to shared/position_pnl.py
-
-
-def _render_positions_table(positions_df: pd.DataFrame) -> None:
-    """Render P&L summary metrics and styled positions dataframe."""
-    if "unrealized_pnl" in positions_df.columns:
-        total_pnl = positions_df["unrealized_pnl"].sum()
-        avg_days = positions_df["days_held"].mean() if "days_held" in positions_df.columns else None
-
-        pc1, pc2, pc3 = st.columns(3)
-        with pc1:
-            st.metric("Total Unrealized P&L", format_dollar(total_pnl))
-        with pc2:
-            st.metric("Positions", str(len(positions_df)))
-        with pc3:
-            st.metric("Avg Days Held", f"{avg_days:.0f}" if avg_days is not None else "—")
-
-    from shared.constants import POSITION_DISPLAY_COLUMNS
-    display_cols = [c for c in POSITION_DISPLAY_COLUMNS if c in positions_df.columns]
-
-    if display_cols:
-        display_pos = positions_df[display_cols].copy()
-        styled = display_pos.style
-        if "return_pct" in display_pos.columns:
-            styled = styled.map(color_return, subset=["return_pct"])
-            styled = styled.format({"return_pct": "{:.1%}"}, na_rep="—")
-        if "unrealized_pnl" in display_pos.columns:
-            styled = styled.format({"unrealized_pnl": "${:,.2f}"}, na_rep="—")
-        if "entry_price" in display_pos.columns:
-            styled = styled.format({"entry_price": "${:.2f}"}, na_rep="—")
-        if "current_price" in display_pos.columns:
-            styled = styled.format({"current_price": "${:.2f}"}, na_rep="—")
-        if "score" in display_pos.columns:
-            styled = styled.format({"score": "{:.1f}"}, na_rep="—")
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-
-
-def _render_performance(eod_df: pd.DataFrame | None) -> None:
-    """Section 3: Alpha chart and summary statistics."""
-    st.header("Performance")
-
+def _compute_cumulative_alpha(eod_df: pd.DataFrame) -> tuple[float | None, float | None]:
+    """Return (daily_alpha, cumulative_alpha) — both in decimal form."""
     if eod_df is None or eod_df.empty:
-        st.info("Performance data not available.")
-        return
+        return None, None
 
-    try:
-        from charts.alpha_chart import make_alpha_chart
-        alpha_fig = make_alpha_chart(eod_df)
-        st.plotly_chart(alpha_fig, use_container_width=True)
-    except Exception as e:
-        logger.warning("Alpha chart render failed: %s", e)
-        st.info("Alpha chart not available.")
+    eod_df = eod_df.copy()
+    eod_df["date"] = pd.to_datetime(eod_df["date"])
+    eod_df = eod_df.sort_values("date")
 
-    eod_copy = eod_df.copy()
-    eod_copy["date"] = pd.to_datetime(eod_copy["date"])
+    daily_alpha = None
+    if "daily_alpha_pct" in eod_df.columns:
+        last_row = eod_df.iloc[-1]
+        daily_alpha = to_decimal_scalar(last_row.get("daily_alpha_pct"))
 
-    if "daily_return_pct" not in eod_copy.columns or "daily_alpha_pct" not in eod_copy.columns:
-        return
+    # Cumulative alpha: portfolio cum return minus SPY cum return, preferring NAV/spy_close
+    nav_series = pd.to_numeric(eod_df.get("portfolio_nav"), errors="coerce")
+    spy_close = pd.to_numeric(eod_df.get("spy_close"), errors="coerce")
+    cumulative_alpha = None
 
-    from shared.normalizers import to_decimal_series
-    returns = to_decimal_series(eod_copy["daily_return_pct"]).dropna()
-    alphas = to_decimal_series(eod_copy["daily_alpha_pct"]).dropna()
-
-    # Direct NAV-based cumulative return (avoids daily chaining errors)
-    nav_series = pd.to_numeric(eod_copy.get("portfolio_nav"), errors="coerce")
-    if nav_series.notna().sum() >= 2:
-        cumulative_ret = nav_series.iloc[-1] / nav_series.iloc[0] - 1
-    else:
-        cumulative_ret = (1 + returns).prod() - 1
-
-    sharpe = (returns.mean() / returns.std() * (252 ** 0.5)) if len(returns) >= 30 and returns.std() > 0 else None
-    max_dd = (returns.cumsum() - returns.cumsum().cummax()).min()
-
-    # Direct spy_close-based cumulative alpha
-    spy_close = pd.to_numeric(eod_copy.get("spy_close"), errors="coerce")
-    if spy_close.notna().sum() >= 2:
+    if nav_series.notna().sum() >= 2 and spy_close.notna().sum() >= 2:
+        port_cum = nav_series.iloc[-1] / nav_series.iloc[0] - 1
         spy_cum = spy_close.dropna().iloc[-1] / spy_close.dropna().iloc[0] - 1
-        cumulative_alpha = cumulative_ret - spy_cum
-    else:
-        cumulative_alpha = alphas.sum()
+        cumulative_alpha = port_cum - spy_cum
+    elif "daily_alpha_pct" in eod_df.columns:
+        alphas = to_decimal_series(eod_df["daily_alpha_pct"]).dropna()
+        if not alphas.empty:
+            cumulative_alpha = alphas.sum()
 
-    sc1, sc2, sc3, sc4 = st.columns(4)
-    with sc1:
-        st.metric("Total Return", f"{cumulative_ret*100:+.1f}%" if pd.notna(cumulative_ret) else "—")
-    with sc2:
-        st.metric("Sharpe Ratio", f"{sharpe:.2f}" if sharpe is not None else "—")
-    with sc3:
-        st.metric("Max Drawdown", f"{max_dd*100:.1f}%" if pd.notna(max_dd) else "—")
-    with sc4:
-        st.metric("Cumulative Alpha", f"{cumulative_alpha*100:+.1f}%" if pd.notna(cumulative_alpha) else "—")
+    return daily_alpha, cumulative_alpha
+
+
+def _render_key_metrics(eod_df: pd.DataFrame | None, predictor_metrics: dict | None) -> None:
+    """Four KPI cards: NAV, Daily Alpha, Cumulative Alpha, Model Hit Rate."""
+    nav = None
+    if eod_df is not None and not eod_df.empty:
+        nav = pd.to_numeric(eod_df.sort_values("date").iloc[-1].get("portfolio_nav"), errors="coerce")
+
+    daily_alpha, cumulative_alpha = _compute_cumulative_alpha(eod_df)
+    hit_rate = (predictor_metrics or {}).get("hit_rate_30d_rolling")
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Portfolio NAV", format_dollar(nav) if nav and pd.notna(nav) else "—")
+    with c2:
+        st.metric(
+            "Daily Alpha vs SPY",
+            f"{daily_alpha * 100:+.2f}%" if daily_alpha is not None else "—",
+        )
+    with c3:
+        st.metric(
+            "Cumulative Alpha",
+            f"{cumulative_alpha * 100:+.1f}%" if cumulative_alpha is not None else "—",
+        )
+    with c4:
+        if hit_rate is not None:
+            st.metric("Model Hit Rate (30d)", f"{float(hit_rate):.1%}")
+        else:
+            st.metric("Model Hit Rate (30d)", "—")
 
 
 def _render_market_context(macro_df: pd.DataFrame | None) -> None:
-    """Render market regime, VIX, and yield metrics."""
-    st.subheader("Market Context")
     if macro_df is None or macro_df.empty:
-        st.info("Macro data not available.")
         return
 
-    macro_df_copy = macro_df.copy()
-    macro_df_copy["date"] = pd.to_datetime(macro_df_copy["date"])
-    today_macro = macro_df_copy[macro_df_copy["date"].dt.date == date.today()]
+    macro_df = macro_df.copy()
+    macro_df["date"] = pd.to_datetime(macro_df["date"])
+    today_macro = macro_df[macro_df["date"].dt.date == date.today()]
     if today_macro.empty:
-        today_macro = macro_df_copy.tail(1)
-
+        today_macro = macro_df.tail(1)
     if today_macro.empty:
         return
 
@@ -389,8 +248,49 @@ def _render_market_context(macro_df: pd.DataFrame | None) -> None:
             st.metric("10yr Yield", str(yield_10yr))
 
 
+def _render_alerts(
+    health_rows: list[dict],
+    eod_df: pd.DataFrame | None,
+) -> None:
+    """Only shown when non-empty. Failed modules, stale modules, S3 errors, drawdown warnings."""
+    alerts: list[str] = []
+
+    # Failed or stale modules
+    for row in health_rows:
+        if row["status"] == "failed":
+            err = row.get("error") or "unknown error"
+            alerts.append(f"❌ Module **{row['module']}** FAILED — {err}")
+        elif row["status"] == "unknown":
+            alerts.append(f"⚠ Module **{row['module']}** has no health status (never run?)")
+        elif row.get("age_hrs") is not None and row["age_hrs"] > 48:
+            alerts.append(f"⚠ Module **{row['module']}** stale — last success {row['age_hrs']:.0f}h ago")
+
+    # Drawdown warning
+    if eod_df is not None and not eod_df.empty and "daily_return_pct" in eod_df.columns:
+        returns = to_decimal_series(eod_df["daily_return_pct"]).dropna()
+        if not returns.empty:
+            cum = returns.cumsum()
+            current_dd = (cum - cum.cummax()).iloc[-1]
+            if current_dd <= -0.05:
+                alerts.append(f"📉 Current drawdown: {current_dd * 100:.1f}%")
+
+    # Recent S3 errors
+    s3_errors = get_recent_s3_errors()
+    if s3_errors:
+        latest = s3_errors[-1]
+        alerts.append(
+            f"S3 error: **{latest.get('error_type', '?')}** on `{latest.get('key', '?')}` "
+            f"— {latest.get('message', '')[:100]}"
+        )
+
+    if alerts:
+        st.subheader("Alerts")
+        for a in alerts:
+            st.warning(a)
+
+
 # ---------------------------------------------------------------------------
-# Main page
+# Main
 # ---------------------------------------------------------------------------
 
 
@@ -400,33 +300,32 @@ def main() -> None:
 
     today = date.today().isoformat()
 
-    with st.spinner("Loading data..."):
+    with st.spinner("Loading..."):
         eod_df = load_eod_pnl()
         trades_df = load_trades_full()
-        signals_data = load_signals_json(today)
         macro_df = get_macro_snapshots()
-        population_data = load_population_json()
         predictions_data = load_predictions_json()
         order_book_summary = load_order_book_summary(today)
+        predictor_metrics = load_predictor_metrics()
+        health_rows = _load_module_health()
 
-    _render_pipeline_activity(population_data, predictions_data, order_book_summary, trades_df)
+    st.subheader("Pipeline Status")
+    _render_status_banner(health_rows)
+
     st.divider()
-    _render_current_holdings(eod_df, signals_data, trades_df)
+    st.subheader("Today's Activity")
+    _render_todays_activity(order_book_summary, predictions_data, trades_df)
+
     st.divider()
-    _render_performance(eod_df)
+    st.subheader("Key Metrics")
+    _render_key_metrics(eod_df, predictor_metrics)
+
+    st.divider()
+    st.subheader("Market Context")
     _render_market_context(macro_df)
 
-    # Surface recent S3 errors on home page (D8)
-    recent_errors = get_recent_s3_errors()
-    if recent_errors:
-        with st.expander(f"S3 Errors ({len(recent_errors)} recent)", expanded=False):
-            for err in recent_errors[-5:]:
-                st.caption(
-                    f"**{err.get('error_type', '?')}** — "
-                    f"`{err.get('key', '?')}` — "
-                    f"{err.get('message', '')[:100]} — "
-                    f"_{err.get('timestamp', '')}_"
-                )
+    st.divider()
+    _render_alerts(health_rows, eod_df)
 
 
 if __name__ == "__main__":

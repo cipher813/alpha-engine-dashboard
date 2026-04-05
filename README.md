@@ -40,7 +40,7 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 
 | Page | Refresh | Purpose |
 |------|---------|---------|
-| Home | 15 min | System health, today's snapshot, signals, market context |
+| Overview (Home) | 15 min | Pipeline status, today's activity, key KPIs, market context, alerts |
 | Portfolio | 15 min | NAV vs SPY, daily alpha, drawdown, current positions |
 | Signals & Research | 15 min | Full signal table with sub-scores, ticker drilldown with score history, conviction, thesis timeline |
 | Analysis | 1 hr | Signal accuracy, backtester runs, and pipeline evaluation (lift + component diagnostics + self-adjustment) |
