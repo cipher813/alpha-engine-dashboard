@@ -9,6 +9,17 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from shared.accuracy_metrics import wilson_ci as _wilson_ci
+from shared.constants import get_thresholds
+
+
+def _threshold_pcts() -> tuple[float, float]:
+    """Return (baseline_pct, outperform_pct) for accuracy charts.
+
+    Called lazily inside each chart function — not at module load — so chart
+    tests that mock streamlit aren't forced to import loaders.s3_loader first.
+    """
+    th = get_thresholds()
+    return th["accuracy_baseline"] * 100, th["accuracy_outperform"] * 100
 
 
 def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
@@ -38,25 +49,26 @@ def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
     df["acc_10d"] = df["beat_spy_10d"].rolling(window, min_periods=5).mean() * 100
     df["acc_30d"] = df["beat_spy_30d"].rolling(window, min_periods=5).mean() * 100
 
+    baseline_pct, outperform_pct = _threshold_pcts()
     fig = go.Figure()
 
-    # Shaded outperformance band (55%+)
+    # Shaded outperformance band
     fig.add_hrect(
-        y0=55,
+        y0=outperform_pct,
         y1=100,
         fillcolor="rgba(0,200,100,0.08)",
         line_width=0,
-        annotation_text="55%+ zone",
+        annotation_text=f"{outperform_pct:.0f}%+ zone",
         annotation_position="top right",
         annotation_font_size=11,
         annotation_font_color="#2ca02c",
     )
 
-    # 50% reference line
+    # Baseline (coin-flip) reference line
     fig.add_hline(
-        y=50,
+        y=baseline_pct,
         line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
-        annotation_text="50% (coin flip)",
+        annotation_text=f"{baseline_pct:.0f}% (coin flip)",
         annotation_position="bottom right",
         annotation_font_size=10,
     )
@@ -172,6 +184,7 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
         fig.update_layout(title="Accuracy by Score Bucket — No data available")
         return fig
 
+    baseline_pct, _ = _threshold_pcts()
     fig = go.Figure()
 
     fig.add_trace(
@@ -201,9 +214,9 @@ def make_accuracy_by_bucket_chart(perf_df: pd.DataFrame) -> go.Figure:
     )
 
     fig.add_hline(
-        y=50,
+        y=baseline_pct,
         line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
-        annotation_text="50%",
+        annotation_text=f"{baseline_pct:.0f}%",
         annotation_position="top right",
     )
 
@@ -281,6 +294,7 @@ def make_accuracy_by_regime_chart(perf_df: pd.DataFrame, macro_df: pd.DataFrame)
     grouped["regime"] = pd.Categorical(grouped["regime"], categories=regime_order, ordered=True)
     grouped = grouped.sort_values("regime")
 
+    baseline_pct, _ = _threshold_pcts()
     fig = go.Figure()
 
     fig.add_trace(
@@ -308,9 +322,9 @@ def make_accuracy_by_regime_chart(perf_df: pd.DataFrame, macro_df: pd.DataFrame)
     )
 
     fig.add_hline(
-        y=50,
+        y=baseline_pct,
         line=dict(color="rgba(0,0,0,0.4)", width=1.5, dash="dash"),
-        annotation_text="50%",
+        annotation_text=f"{baseline_pct:.0f}%",
         annotation_position="top right",
     )
 

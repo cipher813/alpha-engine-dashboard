@@ -5,13 +5,19 @@ Predictor charts — model drift / rolling accuracy trend.
 import pandas as pd
 import plotly.graph_objects as go
 
+from shared.constants import get_thresholds
+
 
 def make_model_drift_chart(outcomes_df: pd.DataFrame) -> go.Figure:
     """
     Rolling accuracy trend: 30-day (blue thin) and 90-day (orange thick).
-    Horizontal bands: green >55%, red <48%, yellow between.
+    Horizontal bands: green ≥ accuracy_outperform, red < model_degraded, yellow between.
     Requires ≥60 resolved predictions.
     """
+    th = get_thresholds()
+    baseline_pct = th["accuracy_baseline"] * 100
+    outperform_pct = th["accuracy_outperform"] * 100
+    degraded_pct = th["model_degraded"] * 100
     if outcomes_df is None or outcomes_df.empty:
         fig = go.Figure()
         fig.update_layout(title="Model Performance Trend — No data")
@@ -34,12 +40,17 @@ def make_model_drift_chart(outcomes_df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
 
     # Background bands
-    fig.add_hrect(y0=55, y1=100, fillcolor="rgba(0,200,100,0.08)", line_width=0)
-    fig.add_hrect(y0=48, y1=55, fillcolor="rgba(255,193,7,0.08)", line_width=0)
-    fig.add_hrect(y0=0, y1=48, fillcolor="rgba(220,53,69,0.06)", line_width=0)
+    fig.add_hrect(y0=outperform_pct, y1=100, fillcolor="rgba(0,200,100,0.08)", line_width=0)
+    fig.add_hrect(y0=degraded_pct, y1=outperform_pct, fillcolor="rgba(255,193,7,0.08)", line_width=0)
+    fig.add_hrect(y0=0, y1=degraded_pct, fillcolor="rgba(220,53,69,0.06)", line_width=0)
 
-    # 50% reference
-    fig.add_hline(y=50, line=dict(color="gray", width=1, dash="dash"), annotation_text="50%", annotation_position="bottom right")
+    # Coin-flip baseline
+    fig.add_hline(
+        y=baseline_pct,
+        line=dict(color="gray", width=1, dash="dash"),
+        annotation_text=f"{baseline_pct:.0f}%",
+        annotation_position="bottom right",
+    )
 
     # 30d rolling
     fig.add_trace(go.Scatter(

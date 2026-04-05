@@ -40,15 +40,13 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 
 | Page | Refresh | Purpose |
 |------|---------|---------|
-| Home | 15 min | System health, today's snapshot, signals, market context |
+| Overview (Home) | 15 min | Pipeline status, today's activity, key KPIs, market context, alerts |
 | Portfolio | 15 min | NAV vs SPY, daily alpha, drawdown, current positions |
-| Signals | 15 min | Full signal table with sub-scores, date picker, ticker detail |
-| Signal Quality | 1 hr | Accuracy trends, score buckets, regime breakdown, weight history |
-| Research | 1 hr | Per-ticker score history, conviction timeline, thesis outcomes |
-| Backtester | 1 hr | Parameter sweep heatmap, attribution, weight recommendations |
-| Trade Log | 15 min | Full trade audit trail with filters and CSV export |
+| Signals & Research | 15 min | Full signal table with sub-scores, ticker drilldown with score history, conviction, thesis timeline |
+| Analysis | 1 hr | Signal accuracy, backtester runs, and pipeline evaluation (lift + component diagnostics + self-adjustment) |
+| Execution | 15 min | Trade log (filters + CSV export) and slippage monitor (fill price vs order price) |
 | Predictor | 15 min | GBM predictions, hit rate, IC, calibration |
-| Slippage | 15 min | Execution quality: fill price vs order price, by action/regime |
+| System Health | 15 min | Module freshness, data volume, feedback loop maturity, feature store coverage + drift |
 
 ---
 
@@ -91,13 +89,11 @@ alpha-engine-dashboard/
 ├── app.py                    # Home page (Streamlit entry point)
 ├── pages/
 │   ├── 1_Portfolio.py
-│   ├── 2_Signals.py
-│   ├── 3_Signal_Quality.py
-│   ├── 4_Research.py
-│   ├── 5_Backtester.py
-│   ├── 6_Trade_Log.py
-│   ├── 7_Predictor.py
-│   └── 8_Slippage.py
+│   ├── 2_Signals_and_Research.py
+│   ├── 3_Analysis.py
+│   ├── 4_System_Health.py
+│   ├── 6_Execution.py
+│   └── 7_Predictor.py
 ├── loaders/
 │   ├── s3_loader.py          # S3 download helpers with TTL caching
 │   ├── db_loader.py          # SQLite read helpers (research.db)
@@ -194,7 +190,7 @@ If memory issues recur, options to reduce footprint:
 1. **Upgrade to t3.small** (2GB RAM, ~$6/month more) — simplest, doubles headroom
 2. **Static public site** — render portfolio chart as static HTML via cron, serve with nginx directly (zero RAM for public page)
 3. **Merge into single Streamlit app** — add public pages to dashboard, use Cloudflare Access path rules to protect `/dashboard/*`. Requires refactoring the public app's custom CSS/layout into conditional page logic.
-4. **Lower `_MAX_QUERY_ROWS`** — reduce from 50,000 if tables grow large. Monitor with Data Inventory page.
+4. **Lower `_MAX_QUERY_ROWS`** — reduce from 50,000 if tables grow large. Monitor with System Health page.
 
 ---
 

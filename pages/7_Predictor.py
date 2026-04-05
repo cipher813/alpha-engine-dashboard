@@ -18,6 +18,13 @@ from loaders.s3_loader import load_predictions_json, load_predictor_metrics, loa
 from loaders.db_loader import get_predictor_outcomes
 from loaders.signal_loader import get_available_signal_dates
 from charts.predictor_chart import make_model_drift_chart, make_feature_importance_chart
+from shared.constants import get_thresholds
+
+_TH = get_thresholds()
+_VETO_CONF = _TH["veto_confidence"]
+_MODEL_HEALTHY = _TH["model_healthy"]
+_MODEL_DEGRADED = _TH["model_degraded"]
+_ACC_BASELINE = _TH["accuracy_baseline"]
 
 st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
 
@@ -35,9 +42,9 @@ if not metrics:
     st.stop()
 
 hit_rate = metrics.get("hit_rate_30d_rolling", 0.0) or 0.0
-if hit_rate >= 0.52:
+if hit_rate >= _MODEL_HEALTHY:
     badge = "🟢 Healthy"
-elif hit_rate >= 0.48:
+elif hit_rate >= _MODEL_DEGRADED:
     badge = "🟡 Degraded"
 else:
     badge = "🔴 Below Threshold"
@@ -205,13 +212,13 @@ else:
     rows = []
     for ticker, pred in predictions.items():
         conf = pred.get("prediction_confidence") or 0.0
-        if not show_all and conf < 0.65:
+        if not show_all and conf < _VETO_CONF:
             continue
         direction = pred.get("predicted_direction", "—")
         arrow = {"UP": "↑", "DOWN": "↓", "FLAT": "→"}.get(direction, "")
         p_up = pred.get("p_up") or 0.0
         p_down = pred.get("p_down") or 0.0
-        modifier = (p_up - p_down) * 10.0 * conf if conf >= 0.65 else 0.0
+        modifier = (p_up - p_down) * 10.0 * conf if conf >= _VETO_CONF else 0.0
         sig = universe.get(ticker, {})
         rows.append({
             "Ticker": ticker,
@@ -308,6 +315,59 @@ else:
 st.divider()
 
 # ---------------------------------------------------------------------------
+# Hit rate by confidence bucket (moved from former Signal Quality page)
+# ---------------------------------------------------------------------------
+
+st.subheader("Hit Rate by Confidence Bucket")
+st.caption("Validates that confidence is monotonically predictive. Non-monotonic = calibration issue.")
+
+if outcomes_df.empty:
+    st.info("No predictor outcome data available yet.")
+else:
+    resolved_bucket = outcomes_df[outcomes_df["correct_5d"].notna()].copy()
+    if len(resolved_bucket) < 20:
+        st.info(
+            f"Requires ≥20 resolved predictions (currently {len(resolved_bucket)}). "
+            "The more fine-grained Confidence Calibration chart below needs ≥100."
+        )
+    else:
+        bins = [0.65, 0.75, 0.85, 1.01]
+        labels = ["0.65–0.75", "0.75–0.85", "0.85–1.0"]
+        resolved_bucket["conf_bucket"] = pd.cut(
+            pd.to_numeric(resolved_bucket["prediction_confidence"], errors="coerce"),
+            bins=bins,
+            labels=labels,
+            right=False,
+        )
+        bucket_stats = (
+            resolved_bucket.groupby("conf_bucket", observed=True)["correct_5d"]
+            .agg(["mean", "count"])
+            .reset_index()
+        )
+        if not bucket_stats.empty:
+            bucket_fig = go.Figure(go.Bar(
+                x=bucket_stats["conf_bucket"].astype(str),
+                y=bucket_stats["mean"],
+                text=[f"{v:.0%} (n={n})" for v, n in zip(bucket_stats["mean"], bucket_stats["count"])],
+                textposition="outside",
+                marker_color="#2ca02c",
+            ))
+            bucket_fig.add_hline(y=_ACC_BASELINE, line_dash="dash", line_color="gray")
+            bucket_fig.update_layout(
+                title="Hit Rate by Confidence Bucket",
+                xaxis_title="Confidence Bucket",
+                yaxis_title="Hit Rate",
+                yaxis=dict(tickformat=".0%", range=[0, 1]),
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                height=300,
+                margin=dict(t=40, b=30, l=60, r=20),
+            )
+            st.plotly_chart(bucket_fig, use_container_width=True)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
 # Confidence calibration chart
 # ---------------------------------------------------------------------------
 
@@ -374,7 +434,7 @@ if predictions and signals_data:
         if not pred:
             continue
         conf = pred.get("prediction_confidence") or 0.0
-        if conf < 0.65:
+        if conf < _VETO_CONF:
             continue
         direction = pred.get("predicted_direction", "")
         signal = ticker_data.get("signal", "")

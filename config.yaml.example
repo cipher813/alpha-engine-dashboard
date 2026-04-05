@@ -21,3 +21,16 @@ drawdown_circuit_breaker: -0.08  # -8%
 
 risk_limits:
   max_sector_pct: 0.25
+
+# Display thresholds — tune to match current system targets.
+# These drive status badges, chart reference lines, and gating UI copy;
+# they do not affect trading behavior.
+thresholds:
+  veto_confidence: 0.65       # Predictor confidence to trigger a DOWN veto
+  model_healthy: 0.52         # 🟢 Healthy: 30d rolling hit rate ≥ this
+  model_degraded: 0.48        # 🟡 Degraded: 30d rolling hit rate ≥ this (below healthy)
+  accuracy_baseline: 0.50     # Coin-flip baseline for accuracy charts
+  accuracy_outperform: 0.55   # Shaded "outperform" band start for accuracy charts
+  hhi_diversified: 0.15       # HHI < this → "Diversified"
+  hhi_concentrated: 0.25      # HHI ≥ this → "Concentrated" (else "Moderate")
+  sharpe_min_rows: 30         # Min days required to compute Sharpe ratio
