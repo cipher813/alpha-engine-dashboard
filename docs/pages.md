@@ -134,86 +134,58 @@ Color: OW = green, UW = red, MW = neutral.
 
 ---
 
-## Page 3: Signal Quality (`pages/3_Signal_Quality.py`)
+## Page 3: Analysis (`pages/3_Analysis.py`)
 
-Answers: _are the signals getting better or worse?_
+Answers: _are signals predictive, how did the backtester do, and is the pipeline learning?_
+
+Merges the former Signal Quality, Backtester, and Evaluation pages. A shared backtest date selector sits at the top; three tabs organize the content.
+
+### Signal Accuracy tab
 
 **Note:** Meaningful after ~Week 4 (~200 rows with `beat_spy_10d` populated). Shows a data loading banner until then.
 
-### Charts (`charts/accuracy_chart.py`)
+Charts (`charts/accuracy_chart.py`):
 
-**Accuracy Trend**
-- Rolling 4-week accuracy (% of BUY signals beating SPY)
-- Two lines: accuracy_10d and accuracy_30d
-- Dashed 50% reference line; shaded band at 55%+
+- **Accuracy Trend** — rolling 4-week accuracy (10d and 30d), dashed 50% reference line, shaded band at 55%+
+- **Accuracy by Score Bucket** — grouped bars for 60–70, 70–80, 80–90, 90+ (10d and 30d)
+- **Accuracy by Regime** — grouped bars (bull/neutral/bear/caution) joining `score_performance` to `macro_snapshots`
+- **Alpha by Market Regime** — from `eod_pnl.csv` joined to `macro_snapshots`
+- **Alpha Distribution** — histogram of `return_10d - spy_10d_return` with mean/median lines (score ≥ 70 and all signals panels)
 
-**Accuracy by Score Bucket**
-- Grouped bars: 60–70, 70–80, 80–90, 90+
-- Two bars per bucket: 10d and 30d accuracy
+Predictor accuracy charts have moved to the Predictor page (Phase 6).
 
-**Accuracy by Regime**
-- Grouped bars: bull, neutral, bear, caution
-- Joins `score_performance` to `macro_snapshots` on date
-- Uses `market_regime` column (falls back to `regime` if present)
+### Backtester tab
 
-**Alpha Distribution**
-- Histogram of `return_10d - spy_10d_return`
-- Mean and median lines; two panels: score ≥ 70 and all signals
+Shows the selected backtest run output.
 
-### Scoring Weights
+- **Last Run Summary** — run date, strategy, data range, universe size, runtime, status from `metrics.json`
+- **Portfolio Simulation Stats** — total return, Sharpe, max drawdown, win rate, avg alpha, num trades
+- **Parameter Sweep — Sharpe Heatmap** — X: `min_score`, Y: `max_position_pct`, color: Sharpe. One inner tab per `drawdown_circuit_breaker` value. Top 5 combinations table per tab. Source: `param_sweep.csv`
+- **Signal Quality Summary** — accuracy 10d/30d, avg alpha 10d/30d from `metrics.signal_quality`; detail table from `signal_quality.csv`
+- **Sub-Score Attribution** — horizontal bar chart of each sub-score's correlation with beat_spy_10d/30d. Source: `attribution.json`
+- **Scoring Weights** — current weight metric cards from `scoring_weights.json`, weight recommendations table (current vs suggested with direction), weight history chart from `config/scoring_weights_history/{date}.json`
+- **Raw Report** — collapsible expander rendering `report.md`
 
-Current weight metric cards from `scoring_weights.json`.
+### Pipeline Evaluation tab
 
-Weight history line chart (`charts/attribution_chart.make_weight_history_chart`) from all `config/scoring_weights_history/{date}.json` files.
+Structured visualizations for Phase 2/3/4 backtester metrics. Parses sections from `report.md`.
 
-### Predictor Accuracy (collapsible)
+**1. Pipeline Lift — Decision Boundary Analysis**
+- Waterfall chart of lift at each stage (Scanner → Teams → CIO → Predictor → Executor → Full Pipeline)
+- Raw lift report expander
 
-Only renders when `predictor_outcomes` has ≥ 20 rows with `correct_5d` populated. Shows data loading banner until then.
+**2. Component Diagnostics** — six sub-tabs:
+- Entry Triggers — scorecard from `report.md`
+- Exit Timing — exit timing analysis
+- Veto Value — net veto value
+- Alpha Distribution — magnitude and score calibration
+- Shadow Book — risk guard shadow book entries
+- Macro A/B — macro multiplier evaluation
 
-**Rolling Hit Rate** — 20-day rolling hit rate from `predictor_outcomes`; three lines (UP / DOWN / all); dashed 50% baseline; shaded band at 55%+ (production-ready zone).
-
-**Hit Rate by Confidence Bucket** — grouped bars: 0.65–0.75, 0.75–0.85, 0.85–1.0. Validates that confidence is monotonically predictive. Non-monotonic result = calibration issue.
-
-**Predictor Impact on Outcomes** — two bars: signals where predictor modifier was applied vs. not. Metric: `beat_spy_10d` rate per group. Source: join `predictor_outcomes` to `score_performance`.
-
-**IC Over Time** — rolling 20-day Pearson IC of `p_up - p_down` vs `actual_5d_return`. Dashed 0.05 reference line (minimum viable threshold).
-
----
-
-## Page 5: Backtester (`pages/5_Backtester.py`)
-
-Shows the latest backtester run output.
-
-### Sections
-
-**Latest Run Banner**
-- Date, status, n_samples from `metrics.json`
-
-**Portfolio Simulation Stats**
-- Total return, Sharpe, max drawdown, Calmar ratio, win rate, total trades
-- Source: `metrics.json`
-
-**Param Sweep Heatmap**
-- X: `min_score` values; Y: `max_position_pct` values; Color: Sharpe ratio
-- One tab per `drawdown_circuit_breaker` value
-- Source: `param_sweep.csv`
-- Top 5 combinations table below heatmap
-
-**Signal Quality Summary**
-- Accuracy 10d/30d with n= counts
-- Avg alpha 10d/30d
-- By-threshold table from `signal_quality.csv`
-
-**Sub-Score Attribution**
-- Horizontal bar chart: correlation of each sub-score with beat_spy_10d/30d
-- Source: `attribution.json`
-
-**Weight Recommendation**
-- Table: current vs suggested weights with change direction
-- Status badge: Applied / Not applied (insufficient data)
-
-**Raw Report**
-- Collapsible expander rendering `report.md` as markdown
+**3. Self-Adjustment Mechanisms** — live state from S3 configs:
+- **Executor adjustments**: disabled triggers, p_up sizing status (IC), sizing A/B results from report. Source: `config/executor_params.json`
+- **Research adjustments**: scanner params, team slot allocation, CIO mode (llm/deterministic). Sources: `config/scanner_params.json`, `config/team_slots.json`, `config/research_params.json`
+- Full Phase 4 Report expander
 
 ---
 
