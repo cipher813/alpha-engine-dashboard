@@ -8,19 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-
-def _wilson_ci(successes: int, total: int, z: float = 1.96) -> tuple[float, float]:
-    """
-    Compute Wilson score confidence interval (pure arithmetic, no scipy).
-    Returns (lower, upper) as proportions.
-    """
-    if total == 0:
-        return 0.0, 0.0
-    p_hat = successes / total
-    denominator = 1 + z * z / total
-    centre = (p_hat + z * z / (2 * total)) / denominator
-    margin = z * math.sqrt((p_hat * (1 - p_hat) + z * z / (4 * total)) / total) / denominator
-    return max(0.0, centre - margin), min(1.0, centre + margin)
+from shared.accuracy_metrics import wilson_ci as _wilson_ci
 
 
 def make_accuracy_trend_chart(perf_df: pd.DataFrame) -> go.Figure:
@@ -451,10 +439,8 @@ def make_regime_alpha_chart(eod_df: pd.DataFrame, macro_df: pd.DataFrame) -> go.
     eod["date"] = pd.to_datetime(eod["date"]).dt.date.astype(str)
     macro["date"] = pd.to_datetime(macro["date"]).dt.date.astype(str)
 
-    eod["daily_alpha_pct"] = pd.to_numeric(eod["daily_alpha_pct"], errors="coerce")
-    # Normalize: if values look like percentages (abs max > 1), convert to decimal
-    if len(eod) > 0 and eod["daily_alpha_pct"].abs().max() > 1.0:
-        eod["daily_alpha_pct"] = eod["daily_alpha_pct"] / 100.0
+    from shared.normalizers import to_decimal_series
+    eod["daily_alpha_pct"] = to_decimal_series(eod["daily_alpha_pct"])
 
     regime_col = "regime" if "regime" in macro.columns else "market_regime" if "market_regime" in macro.columns else None
     if regime_col is None:
