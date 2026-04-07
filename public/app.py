@@ -155,12 +155,15 @@ col3.metric(
 col4.metric("Alpha Days", f"{up_days} ▲  {down_days} ▼")
 
 # NAV vs SPY chart
+_perf_date = eod["date"].iloc[-1].strftime("%Y-%m-%d")
 st.markdown("### Portfolio vs S&P 500")
+st.caption(f"As of {_perf_date}")
 fig_nav = make_nav_chart(eod)
 st.plotly_chart(fig_nav, width="stretch")
 
 # Alpha stats
 st.markdown("### Alpha Performance")
+st.caption(f"As of {_perf_date}")
 
 col_a, col_b, col_c, col_d = st.columns(4)
 win_rate = up_days / total_days * 100 if total_days > 0 else 0
@@ -182,6 +185,7 @@ st.divider()
 # ===========================================================================
 
 st.markdown("### Current Holdings")
+st.caption(f"As of {_perf_date}")
 
 try:
     snapshot_raw = latest.get("positions_snapshot", "{}")
@@ -261,7 +265,7 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
                     if col in recent_trades.columns:
                         display_cols.append(col)
                         break
-                st.caption(f"Trades from {recent_date}")
+                st.caption(f"As of {recent_date}")
                 st.dataframe(
                     recent_trades[display_cols].reset_index(drop=True),
                     width="stretch", hide_index=True,
@@ -274,6 +278,8 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
 
 st.markdown("### Investment Universe")
 if population_data and population_data.get("population"):
+    _pop_date = population_data.get("date", "unknown")
+    st.caption(f"As of {_pop_date}")
     pop = population_data["population"]
     pop_date = population_data.get("date", "unknown")
     regime = population_data.get("market_regime", "unknown")
