@@ -18,3 +18,7 @@ venv/
 # Hugo blog build output (source is tracked, built files are not)
 blog/public/
 blog/resources/
+# Gitleaks config (symlink to shared config)
+.gitleaks.toml
+
+.gitleaksbaseline.json
