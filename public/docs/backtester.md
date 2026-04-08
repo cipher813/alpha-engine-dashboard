@@ -1,8 +1,11 @@
 ## Backtester Module
 
-The Backtester is the system's learning mechanism. It measures signal quality,
-optimizes parameters across all modules, and auto-applies updated configurations —
-closing the feedback loop without manual intervention.
+The Backtester is the system's learning and evaluation mechanism. It grades every
+component (A-F scorecard), measures signal quality with precision/recall/F1 at
+every decision boundary, optimizes parameters across all modules, and auto-applies
+updated configurations — closing the feedback loop without manual intervention.
+
+*GitHub: [alpha-engine-backtester](https://github.com/cipher813/alpha-engine-backtester) · Last updated: 2026-04-08*
 
 ---
 
@@ -20,15 +23,21 @@ system toward higher risk-adjusted returns.
 
 ### Key Concepts
 
-- **Signal quality analysis:** Measures what percentage of BUY signals actually beat
-  SPY over 10-day and 30-day windows, broken down by score range and market regime
-- **Attribution analysis:** Correlates individual sub-scores (news, research, macro,
-  signal boosts) with actual outperformance to identify the most predictive factors
-- **Parameter sweep:** 60-trial random search over executor risk parameters (ATR
-  multiplier, time decay, position sizing factors), ranked by Sharpe ratio and
-  validated on a holdout period
-- **Auto-apply:** Optimized parameters are written directly to S3 config files that
-  all downstream modules read — no manual intervention required
+- **System report card:** Weekly A-F grades for every component (scanner, 6 sector
+  teams, CIO, macro, predictor, veto, entry triggers, risk guard, exits, sizing, portfolio)
+- **Classification metrics:** Precision/recall/F1 at every pipeline decision boundary
+  (scanner, teams, CIO, predictor, executor, risk guard)
+- **Per-sector accuracy:** Signal quality and veto precision broken down by sector
+- **Predictor confusion matrix:** 3x3 UP/FLAT/DOWN with per-direction P/R/F1
+- **Signal quality analysis:** Measures what percentage of BUY signals beat SPY
+  over 5/10/30-day windows, broken down by score range, market regime, and sector
+- **Attribution analysis:** Correlates sub-scores (quant, qual) with outperformance
+  using Benjamini-Hochberg FDR correction
+- **Parameter sweep:** 60-trial random search over executor risk parameters, ranked
+  by Sharpe ratio and validated on holdout
+- **6 autonomous optimizers:** Scoring weights, executor params, veto threshold,
+  trigger enables, team slots, CIO mode
+- **Grade history:** 52-week rolling grades appended to S3 for trend tracking
 - **Portfolio simulation:** VectorBT replays historical orders to compute Sharpe,
   max drawdown, Calmar ratio, and cumulative alpha
 
@@ -37,18 +46,24 @@ system toward higher risk-adjusted returns.
 ### How It Works
 
 ```
-Read signal history from S3 (score_performance table)
-  → Signal quality: accuracy by score bucket, regime, time period
+Read signal history + trade data from S3
+  → System report card: grade every component (A-F)
+  → Classification metrics: P/R/F1 at each decision boundary
+  → Per-sector accuracy: signals and veto by sector
+  → Predictor confusion matrix: 3x3 UP/FLAT/DOWN
+  → Signal quality: accuracy by score bucket, regime, sector
   → Attribution: correlate sub-scores with outperformance
   → Weight optimization: recommend scoring weight adjustments
   → Parameter sweep: 60-trial random search over risk params
   → Veto analysis: auto-tune predictor confidence threshold
   → Portfolio simulation: replay historical trades via VectorBT
-  → Write optimized configs to S3:
-      config/scoring_weights.json   → Research
-      config/executor_params.json   → Executor
-      config/predictor_params.json  → Predictor
-      config/research_params.json   → Research (deferred until 200+ samples)
+  → Write optimized configs to S3 + structured analysis JSON:
+      config/scoring_weights.json    → Research
+      config/executor_params.json    → Executor
+      config/predictor_params.json   → Predictor
+      backtest/{date}/grading.json   → Dashboard (report card)
+      backtest/{date}/*.json         → Dashboard (7 analysis files)
+      backtest/grade_history.json    → Dashboard (52-week trends)
 ```
 
 ---

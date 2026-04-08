@@ -1,8 +1,11 @@
 ## Predictor Module
 
-The Predictor is the system's quantitative ML layer. It trains a gradient-boosted
-model (LightGBM) to predict 5-day sector-relative returns for each tracked stock,
-producing directional predictions (UP/FLAT/DOWN) with confidence scores.
+The Predictor is the system's quantitative ML layer. It uses a meta-model architecture
+(4 specialized GBMs + ridge meta-learner) to predict 5-day sector-relative returns
+for each tracked stock, producing directional predictions (UP/FLAT/DOWN) with
+confidence scores.
+
+*GitHub: [alpha-engine-predictor](https://github.com/cipher813/alpha-engine-predictor) · Last updated: 2026-04-08*
 
 ---
 
@@ -20,16 +23,22 @@ quantitative timing layer on top of the qualitative research signals.
 
 ### Key Concepts
 
+- **Meta-model v3.0:** 4 specialized GBMs (momentum, mean-reversion, volatility,
+  regime) combined via ridge meta-learner. IC approximately 4x single-GBM baseline.
 - **Sector-neutral labels:** Training target is `stock_5d_return - sector_etf_5d_return`,
   so the model learns stock-specific behavior independent of sector trends
-- **Walk-forward validation:** Model is validated on rolling out-of-sample windows
-  to prevent overfitting to historical patterns
-- **Information Coefficient (IC):** Primary metric — correlation between predicted
-  and actual returns. Model weights are only promoted if IC exceeds a gate threshold
-- **Veto gate:** When the model predicts DOWN with confidence above a tunable
+- **Walk-forward validation:** 5-fold rolling validation with IC gate — model weights
+  are only promoted if IC exceeds threshold across sufficient folds
+- **Information Coefficient (IC):** Primary metric — rank correlation between predicted
+  and actual returns
+- **Veto gate:** When the model predicts DOWN with confidence above a regime-adaptive
   threshold, the Executor holds off on entering that position
-- **Price caching:** Layered S3 cache (full 10y weekly + 2y slim + daily delta)
-  minimizes API calls to yfinance
+- **ArcticDB price store:** Prices read from ArcticDB (S3-backed, replacing Parquet)
+  with daily_closes delta for inference freshness
+- **Feedback loop:** Drift detection (feature z-scores, prediction clustering),
+  ensemble mode evaluation, feature pruning, and retrain alerts
+- **Daily health check:** Lambda verifies prediction freshness, detects feature drift
+  and degenerate clustering, sends SNS alert on anomaly
 
 ---
 

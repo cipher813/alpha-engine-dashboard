@@ -2,6 +2,8 @@
 
 This deep dive covers how the Research module uses Retrieval-Augmented Generation
 (RAG) to give LLM agents access to SEC filings and historical investment theses
+
+*GitHub: [alpha-engine-research](https://github.com/cipher813/alpha-engine-research) · Last updated: 2026-04-08*
 through semantic search.
 
 ---

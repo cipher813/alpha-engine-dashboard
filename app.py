@@ -30,6 +30,8 @@ from loaders.s3_loader import (
     _research_bucket,
     _trades_bucket,
     get_recent_s3_errors,
+    list_backtest_dates,
+    load_backtest_file,
     load_eod_pnl,
     load_order_book_summary,
     load_predictions_json,
@@ -298,8 +300,56 @@ def _render_alerts(
 # ---------------------------------------------------------------------------
 
 
+_GRADE_BANDS = [
+    (90, "A"), (80, "A-"), (73, "B+"), (65, "B"), (58, "B-"),
+    (50, "C+"), (42, "C"), (35, "C-"), (28, "D+"), (20, "D"), (0, "F"),
+]
+
+
+def _grade_letter(score: float | None) -> str:
+    if score is None:
+        return "N/A"
+    for threshold, letter in _GRADE_BANDS:
+        if score >= threshold:
+            return letter
+    return "F"
+
+
+def _render_report_card() -> None:
+    """Display system report card grades from latest backtest."""
+    dates = list_backtest_dates()
+    if not dates:
+        st.info("No backtest results available yet.")
+        return
+
+    metrics = load_backtest_file(dates[0], "metrics.json")
+    if not metrics or "report_card" not in metrics:
+        st.caption(f"Report card not available (last backtest: {dates[0]})")
+        return
+
+    rc = metrics["report_card"]
+    overall = rc.get("overall", {})
+    og = overall.get("grade")
+
+    c1, c2, c3, c4 = st.columns(4)
+    for col, key, label in [
+        (c1, "research", "Research"),
+        (c2, "predictor", "Predictor"),
+        (c3, "executor", "Executor"),
+    ]:
+        mod = rc.get(key, {})
+        g = mod.get("grade")
+        with col:
+            st.metric(label, _grade_letter(g), f"{g:.0f}/100" if g is not None else None)
+
+    with c4:
+        st.metric("Overall", _grade_letter(og), f"{og:.0f}/100" if og is not None else None)
+
+    st.caption(f"Last backtest: {dates[0]}")
+
+
 def main() -> None:
-    st.title("📈 Alpha Engine")
+    st.title("Alpha Engine")
     st.caption("Autonomous equity portfolio — LLM research + GBM predictions + quantitative execution")
 
     today = date.today().isoformat()
@@ -323,6 +373,10 @@ def main() -> None:
     st.divider()
     st.subheader("Key Metrics")
     _render_key_metrics(eod_df, predictor_metrics)
+
+    st.divider()
+    st.subheader("System Report Card")
+    _render_report_card()
 
     st.divider()
     st.subheader("Market Context")

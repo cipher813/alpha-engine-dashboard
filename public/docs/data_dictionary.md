@@ -2,6 +2,8 @@
 
 Schema reference for all databases, CSV exports, and JSON data contracts
 across the Alpha Engine system. Modules communicate exclusively through S3 —
+
+*GitHub: [alpha-engine-docs](https://github.com/cipher813/alpha-engine-docs) · Last updated: 2026-04-08*
 these schemas define the contracts between them.
 
 ---

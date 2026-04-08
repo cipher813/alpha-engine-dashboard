@@ -17,7 +17,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loaders.s3_loader import load_trades_full
+from loaders.s3_loader import list_backtest_dates, load_backtest_file, load_trades_full
 from loaders.db_loader import get_score_performance
 
 st.set_page_config(page_title="Execution — Alpha Engine", layout="wide")
@@ -102,7 +102,7 @@ if date_col is not None and not trades_df.empty:
 
 st.divider()
 
-tab_log, tab_slip = st.tabs(["Trade Log", "Slippage Monitor"])
+tab_log, tab_eval, tab_slip = st.tabs(["Trade Log", "Execution Evaluation", "Slippage Monitor"])
 
 # ===========================================================================
 # TAB 1: Trade Log
@@ -275,7 +275,111 @@ with tab_log:
 
 
 # ===========================================================================
-# TAB 2: Slippage Monitor
+# TAB 2: Execution Evaluation (backtester analysis)
+# ===========================================================================
+with tab_eval:
+    bt_dates = list_backtest_dates()
+    if not bt_dates:
+        st.info("No backtest results available. Run the backtester to populate execution evaluation.")
+    else:
+        bt_date = bt_dates[0]
+        with st.spinner(f"Loading evaluation data from {bt_date}..."):
+            trigger_data = load_backtest_file(bt_date, "trigger_scorecard.json")
+            shadow_data = load_backtest_file(bt_date, "shadow_book.json")
+            exit_data = load_backtest_file(bt_date, "exit_timing.json")
+
+        st.caption(f"Source: backtest run {bt_date}")
+
+        # ---- Entry Trigger Scorecard ----
+        st.subheader("Entry Trigger Scorecard")
+        if trigger_data and trigger_data.get("status") == "ok":
+            triggers = trigger_data.get("triggers", [])
+            if triggers:
+                tdf = pd.DataFrame(triggers)
+                display_cols = [c for c in ["trigger", "n_trades", "avg_slippage_vs_signal", "avg_slippage_vs_open", "avg_realized_alpha", "win_rate_vs_spy", "precision"] if c in tdf.columns]
+                st.dataframe(tdf[display_cols], use_container_width=True, hide_index=True)
+
+                summary = trigger_data.get("summary", {})
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    v = summary.get("avg_slippage_vs_signal")
+                    st.metric("Avg Slippage vs Signal", f"{v:+.2%}" if v is not None else "—")
+                with c2:
+                    v = summary.get("win_rate_vs_spy")
+                    st.metric("Win Rate vs SPY", f"{v:.1%}" if v is not None else "—")
+                with c3:
+                    v = summary.get("avg_realized_alpha")
+                    st.metric("Avg Realized Alpha", f"{v:+.2%}" if v is not None else "—")
+            else:
+                st.info("No trigger data with enough trades.")
+        else:
+            st.info("Trigger scorecard not available for this backtest run.")
+
+        st.divider()
+
+        # ---- Risk Guard Shadow Book ----
+        st.subheader("Risk Guard Shadow Book")
+        if shadow_data and shadow_data.get("status") == "ok":
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("Blocked Entries", shadow_data.get("n_blocked", 0))
+            with c2:
+                gl = shadow_data.get("guard_lift")
+                st.metric("Guard Lift", f"{gl:+.2%}" if gl is not None else "—")
+            with c3:
+                st.metric("Assessment", shadow_data.get("assessment", "—").replace("_", " ").title())
+
+            clf = shadow_data.get("classification")
+            if clf:
+                mc1, mc2, mc3 = st.columns(3)
+                with mc1:
+                    v = clf.get("precision")
+                    st.metric("Precision", f"{v:.1%}" if v is not None else "—", help="% of blocks that were actual losers")
+                with mc2:
+                    v = clf.get("recall")
+                    st.metric("Recall", f"{v:.1%}" if v is not None else "—", help="% of all losers that were blocked")
+                with mc3:
+                    v = clf.get("f1")
+                    st.metric("F1", f"{v:.3f}" if v is not None else "—")
+
+            by_reason = shadow_data.get("by_reason", [])
+            if by_reason:
+                st.markdown("**Blocks by Reason**")
+                st.dataframe(pd.DataFrame(by_reason), use_container_width=True, hide_index=True)
+        else:
+            st.info("Shadow book analysis not available for this backtest run.")
+
+        st.divider()
+
+        # ---- Exit Timing Analysis ----
+        st.subheader("Exit Timing (MFE/MAE)")
+        if exit_data and exit_data.get("status") == "ok":
+            summary = exit_data.get("summary", {})
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                v = summary.get("avg_capture_ratio")
+                st.metric("Capture Ratio", f"{v:.2f}" if v is not None else "—", help="Realized return / max favorable excursion")
+            with c2:
+                v = summary.get("avg_mfe")
+                st.metric("Avg MFE", f"{v:+.2%}" if v is not None else "—")
+            with c3:
+                v = summary.get("avg_mae")
+                st.metric("Avg MAE", f"{v:+.2%}" if v is not None else "—")
+            with c4:
+                st.metric("Diagnosis", exit_data.get("diagnosis", "—").replace("_", " ").title())
+
+            by_exit = exit_data.get("by_exit_type", [])
+            if by_exit:
+                st.markdown("**By Exit Type**")
+                st.dataframe(pd.DataFrame(by_exit), use_container_width=True, hide_index=True)
+
+            st.metric("Roundtrips", exit_data.get("n_roundtrips", 0))
+        else:
+            st.info("Exit timing analysis not available for this backtest run.")
+
+
+# ===========================================================================
+# TAB 3: Slippage Monitor
 # ===========================================================================
 with tab_slip:
     if "fill_price" not in trades_df.columns or "price_at_order" not in trades_df.columns:

@@ -1,9 +1,11 @@
 ## Research Module
 
-The Research module is the system's signal generator. It runs weekly on Monday,
+The Research module is the system's signal generator. It runs weekly (Saturday),
 scanning the S&P 500 and S&P 400 (~900 stocks) to identify buy candidates,
 maintain rolling investment theses, and produce composite attractiveness scores
 for a tracked universe of 20-25 stocks.
+
+*GitHub: [alpha-engine-research](https://github.com/cipher813/alpha-engine-research) · Last updated: 2026-04-08*
 
 ---
 
