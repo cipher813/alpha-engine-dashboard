@@ -39,7 +39,9 @@ SECTIONS = {
     "Predictor": "predictor.md",
     "Executor": "executor.md",
     "Backtester": "backtester.md",
+    "Data": "data.md",
     "Dashboard": "dashboard.md",
+    "Evaluation": "evaluation.md",
     "Data Dictionary": "data_dictionary.md",
 }
 

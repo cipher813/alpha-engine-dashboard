@@ -4,6 +4,8 @@ The Executor translates AI-generated signals and ML predictions into real portfo
 positions. It reads from S3, applies risk rules, sizes positions, and manages the
 full trade lifecycle through Interactive Brokers.
 
+*GitHub: [alpha-engine](https://github.com/cipher813/alpha-engine) · Last updated: 2026-04-08*
+
 ---
 
 ### Overview
@@ -51,17 +53,20 @@ Read signals.json + predictions.json from S3
 ```
 Daemon starts → execute urgent exits immediately at market open
   → Monitor entry triggers every 60 seconds
-  → Place limit orders when triggers fire
+  → Place limit orders when triggers fire (pullback, VWAP discount, support)
   → Manage trailing stops and profit-take levels
-  → 3:30 PM ET: time-expiry market orders for unfilled entries
+  → 2:00-3:30 PM: graduated expiry (accept if price <= open+1%)
+  → 3:55 PM ET: unconditional time-expiry market orders for unfilled entries
 ```
 
-**EOD (1:20 PM PT):**
+**EOD (1:20 PM PT, Step Function orchestrated):**
 ```
 Reconcile positions with IB
   → Capture NAV, compute daily return vs SPY
+  → Sector attribution, roundtrip statistics
   → Log alpha to SQLite + S3
   → Send EOD performance email
+  → Step Function stops EC2 trading instance
 ```
 
 ---

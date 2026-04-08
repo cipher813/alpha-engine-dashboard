@@ -3,6 +3,8 @@
 This deep dive covers how the Research module uses LangGraph to orchestrate
 its multi-agent pipeline, manage state, and coordinate parallel execution.
 
+*GitHub: [alpha-engine-research](https://github.com/cipher813/alpha-engine-research) · Last updated: 2026-04-08*
+
 ---
 
 ### Why LangGraph?

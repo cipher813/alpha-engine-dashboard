@@ -3,6 +3,8 @@
 This deep dive covers the Research module's graph topology, node pipeline,
 and how data flows from raw market data to scored investment signals.
 
+*GitHub: [alpha-engine-research](https://github.com/cipher813/alpha-engine-research) · Last updated: 2026-04-08*
+
 ---
 
 ### Graph Architecture

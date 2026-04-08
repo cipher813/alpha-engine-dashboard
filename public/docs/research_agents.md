@@ -3,6 +3,8 @@
 This deep dive covers how the Research module uses the ReAct (Reasoning + Acting)
 pattern to build LLM agents that analyze stocks using real-time data tools.
 
+*GitHub: [alpha-engine-research](https://github.com/cipher813/alpha-engine-research) · Last updated: 2026-04-08*
+
 ---
 
 ### What Is a ReAct Agent?

@@ -1,8 +1,14 @@
-# Alpha Engine Dashboard
+# alpha-engine-dashboard
 
-Read-only Streamlit dashboard for monitoring the full Alpha Engine system: portfolio performance, signal quality trends, research history, backtester output, and trade audit trail.
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-218_passing-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-81%25-green.svg)]()
 
-> Part of [Nous Ergon: Alpha Engine](https://github.com/cipher813/alpha-engine).
+> Read-only Streamlit dashboard for monitoring the full Alpha Engine system: portfolio performance, system report card, signal quality, execution evaluation, research history, and trade audit trail.
+
+**Part of the [Nous Ergon](https://nousergon.ai) autonomous trading system.**
+See the [system overview](https://github.com/cipher813/alpha-engine#readme) for how all modules connect, or the [full documentation index](https://github.com/cipher813/alpha-engine-docs#readme).
 
 ---
 
@@ -40,12 +46,12 @@ If your S3 bucket names differ from the defaults, edit `config.yaml`.
 
 | Page | Refresh | Purpose |
 |------|---------|---------|
-| Overview (Home) | 15 min | Pipeline status, today's activity, key KPIs, market context, alerts |
-| Portfolio | 15 min | NAV vs SPY, daily alpha, drawdown, current positions |
+| Overview (Home) | 15 min | Pipeline status, today's activity, key KPIs, **system report card** (module grades), market context, alerts |
+| Portfolio | 15 min | NAV vs SPY, daily alpha, drawdown, current positions, sector allocation |
 | Signals & Research | 15 min | Full signal table with sub-scores, ticker drilldown with score history, conviction, thesis timeline |
-| Analysis | 1 hr | Signal accuracy, backtester runs, and pipeline evaluation (lift + component diagnostics + self-adjustment) |
-| Execution | 15 min | Trade log (filters + CSV export) and slippage monitor (fill price vs order price) |
-| Predictor | 15 min | GBM predictions, hit rate, IC, calibration |
+| Analysis | 1 hr | Signal accuracy, backtester runs (with **component grade table** and **sector team grades**), and pipeline evaluation (lift + component diagnostics + self-adjustment) |
+| Execution | 15 min | Trade log, **execution evaluation** (trigger scorecard, shadow book with P/R/F1, exit timing MFE/MAE), slippage monitor |
+| Predictor | 15 min | GBM predictions, hit rate, IC, mode history, feature importance, calibration |
 | System Health | 15 min | Module freshness, data volume, feedback loop maturity, feature store coverage + drift |
 
 ---
@@ -141,34 +147,6 @@ sudo systemctl start dashboard
 
 ---
 
-## Opportunities for Improvement
-
-### Missing Views
-
-- **Sector allocation visualization** — can't see portfolio concentration by sector. Essential for monitoring the 25% sector limit.
-- **Veto status display** — executor has a veto gate but the dashboard can't show which ENTER signals are currently blocked by the predictor.
-- **Correlation/concentration analysis** — can't see if holdings are clustered in correlated stocks (e.g., MSFT + AAPL + GOOGL all >0.8 correlation).
-- **Position-level P&L** — can't see entry price, unrealized P&L, or days held for each position.
-
-### Missing Analysis Views
-
-- **Model drift tracking** — predictor page shows 30-day rolling hit rate but no long-term trend (6-month degradation chart).
-- **Regime-specific alpha tracking** — can't see portfolio alpha split by bull vs bear markets.
-- **Win rate confidence intervals** — accuracy by score bucket shown without sample sizes or confidence bands.
-- **Sector rotation tracking** — can't see how sector allocations have shifted over time.
-- **Drawdown recovery speed** — can't measure how quickly the portfolio recovers from drawdowns.
-
-### System Health
-
-- **Health checks lack historical context** — "Yesterday's signals present" shows a yellow badge but should be red after 48 hours.
-- **Backtester health only checks recency** — doesn't check if the backtest actually failed, only if it ran recently.
-- **No executor failure detection** — IB Gateway health only checks that an eod_pnl entry exists, not whether the executor actually processed trades.
-
-### Data Loading
-
-- **Silent failures in S3 loader** — `_s3_get_object()` returns None on any exception without logging. Network errors, permission denials, and missing keys all look the same.
-- **Fragile schema assumptions** — hardcoded SQL and JSON field names throughout. Schema drift from upstream modules breaks pages silently.
-
 ---
 
 ## EC2 Memory Constraints
@@ -196,10 +174,12 @@ If memory issues recur, options to reduce footprint:
 
 ## Related Modules
 
-- [`alpha-engine`](https://github.com/cipher813/alpha-engine) — Executor (trade execution + system overview)
+- [`alpha-engine`](https://github.com/cipher813/alpha-engine) — Executor + system overview
 - [`alpha-engine-research`](https://github.com/cipher813/alpha-engine-research) — Autonomous LLM research pipeline
-- [`alpha-engine-predictor`](https://github.com/cipher813/alpha-engine-predictor) — GBM predictor (5-day alpha predictions)
-- [`alpha-engine-backtester`](https://github.com/cipher813/alpha-engine-backtester) — Signal quality analysis and parameter optimization
+- [`alpha-engine-predictor`](https://github.com/cipher813/alpha-engine-predictor) — Meta-model predictor
+- [`alpha-engine-backtester`](https://github.com/cipher813/alpha-engine-backtester) — Evaluation framework and parameter optimization
+- [`alpha-engine-data`](https://github.com/cipher813/alpha-engine-data) — Centralized data collection and ArcticDB
+- [`alpha-engine-docs`](https://github.com/cipher813/alpha-engine-docs) — Documentation index
 
 ---
 

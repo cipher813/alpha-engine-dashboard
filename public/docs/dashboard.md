@@ -1,8 +1,11 @@
 ## Dashboard Module
 
 The Dashboard provides read-only monitoring for the full system. It surfaces
-portfolio performance, signal quality trends, research theses, backtester results,
-and GBM predictions through a Streamlit web interface.
+the system report card, portfolio performance, signal quality trends, execution
+evaluation, research theses, backtester results, and GBM predictions through
+a Streamlit web interface.
+
+*GitHub: [alpha-engine-dashboard](https://github.com/cipher813/alpha-engine-dashboard) · Last updated: 2026-04-08*
 
 ---
 
@@ -31,11 +34,11 @@ at dashboard.nousergon.ai (protected by Cloudflare Access).
 
 | Page | What It Shows |
 |------|---------------|
-| **Home** | System health indicators, today's snapshot, signal table |
-| **Portfolio** | NAV vs SPY chart, drawdown, positions, sector allocation |
+| **Home** | Pipeline status, today's activity, key KPIs, **system report card** (module grades), market context |
+| **Portfolio** | NAV vs SPY chart, drawdown, positions, sector allocation with HHI concentration |
 | **Signals & Research** | Full signal table with date picker, sector ratings, and ticker drilldown surfacing score history, conviction, thesis timeline |
-| **Analysis** | Signal accuracy trends, backtester runs (param sweep, attribution, weight recommendations), pipeline evaluation (lift + component diagnostics + self-adjustment status) |
-| **Execution** | Trade log (filters + CSV export) and slippage monitor |
+| **Analysis** | Signal accuracy trends, backtester runs with **component grade table** and **sector team grades** (precision, recall, lift), pipeline evaluation |
+| **Execution** | Trade log, **execution evaluation** (trigger scorecard, shadow book with P/R/F1, exit timing MFE/MAE), slippage monitor |
 | **Predictor** | GBM predictions, hit rate, IC, calibration, disagreements |
 
 ---
