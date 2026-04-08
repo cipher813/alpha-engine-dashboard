@@ -279,7 +279,7 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
 st.markdown("### Investment Universe")
 if population_data and population_data.get("population"):
     _pop_date = population_data.get("date", "unknown")
-    st.caption(f"As of {_pop_date}")
+    st.caption(f"Research picks as of {_pop_date}")
     pop = population_data["population"]
     pop_date = population_data.get("date", "unknown")
     regime = population_data.get("market_regime", "unknown")
