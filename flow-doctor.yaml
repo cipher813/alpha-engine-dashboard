@@ -1,0 +1,23 @@
+flow_name: dashboard
+repo: cipher813/alpha-engine-dashboard
+owner: "@brianmcmahon"
+notify:
+  - type: email
+    sender: ${EMAIL_SENDER}
+    recipients: ${EMAIL_RECIPIENTS}
+    smtp_host: smtp.gmail.com
+    smtp_port: 587
+    smtp_password: ${GMAIL_APP_PASSWORD}
+  - type: github
+    repo: cipher813/alpha-engine-dashboard
+    token: ${FLOW_DOCTOR_GITHUB_TOKEN}
+store:
+  type: sqlite
+  path: /tmp/flow_doctor.db
+dedup_cooldown_minutes: 60
+dependencies:
+  - boot-pull
+rate_limits:
+  max_alerts_per_day: 10
+  max_issues_per_day: 3
+  max_diagnosed_per_day: 3

@@ -11,6 +11,14 @@ TimeoutStartSec=300
 RemainAfterExit=no
 # Ensure the script sees a sane PATH (includes pip, git, aws)
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/ec2-user/.local/bin
+# Load FLOW_DOCTOR_GITHUB_TOKEN (and other secrets) so the script's
+# flow-doctor failure reporter can actually post GitHub issues on pull
+# failures. The file is owned by ec2-user with mode 600 and is populated
+# by push-secrets.sh from alpha-engine-data. systemd directives after
+# this one inherit the env vars. If the file is missing, systemd logs a
+# warning but starts the service anyway (standard EnvironmentFile=-)
+# behavior when the path is prefixed with a dash).
+EnvironmentFile=-/home/ec2-user/.alpha-engine.env
 
 [Install]
 WantedBy=multi-user.target
