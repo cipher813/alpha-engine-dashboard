@@ -1,0 +1,16 @@
+[Unit]
+Description=Pull latest Alpha Engine code on the micro EC2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+ExecStart=/home/ec2-user/alpha-engine-dashboard/infrastructure/boot-pull.sh
+TimeoutStartSec=300
+RemainAfterExit=no
+# Ensure the script sees a sane PATH (includes pip, git, aws)
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/ec2-user/.local/bin
+
+[Install]
+WantedBy=multi-user.target

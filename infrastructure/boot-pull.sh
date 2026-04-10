@@ -1,0 +1,151 @@
+#!/bin/bash
+# boot-pull.sh — Pull latest code for all Alpha Engine repos on the micro EC2.
+#
+# Runs as a systemd oneshot service, triggered by a daily timer at 12:00 UTC
+# (5am PDT / 4am PST). Also runnable manually:
+#
+#   sudo systemctl start boot-pull
+#
+# Why a timer instead of on-boot?
+# The micro is always-on (24/7). The timer bounds drift to ≤24h regardless
+# of whether the instance reboots. 5am PT / 12:00 UTC was chosen because it
+# runs before Brian wakes up so any failure is visible in the morning and
+# can be addressed before the weekday Saturday pipeline fires at 5 PM PT.
+#
+# Mirrors the trading instance's boot-pull.sh (alpha-engine/infrastructure/)
+# with a different REPOS array.
+
+set -uo pipefail
+
+LOG="/var/log/boot-pull.log"
+
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+
+log "=== boot-pull started ==="
+
+# Repos the micro needs at runtime. Order matters only for dependency
+# (alpha-engine-config first so other repos can reference it on pull).
+REPOS=(
+    /home/ec2-user/alpha-engine-config
+    /home/ec2-user/alpha-engine-data
+    /home/ec2-user/alpha-engine-research
+    /home/ec2-user/alpha-engine-dashboard
+    /home/ec2-user/flow-doctor
+)
+
+PULL_FAILURES=0
+FAILED_REPOS=()
+
+for repo in "${REPOS[@]}"; do
+    if [ ! -d "$repo/.git" ]; then
+        log "SKIP $repo (not cloned)"
+        continue
+    fi
+
+    log "Pulling $repo ..."
+    cd "$repo"
+    PREV_SHA=$(git rev-parse HEAD 2>/dev/null || echo "none")
+    if git fetch origin >> "$LOG" 2>&1 && git reset --hard origin/main >> "$LOG" 2>&1; then
+        NEW_SHA=$(git rev-parse HEAD 2>/dev/null || echo "none")
+        log "OK   $repo — $(git log --oneline -1)"
+
+        # Only run pip install if requirements.txt actually changed — pip is
+        # slow on a 1GB instance and runs every day even when no deps moved.
+        if [ "$PREV_SHA" != "$NEW_SHA" ] && [ -f "requirements.txt" ] && [ -f ".venv/bin/pip" ]; then
+            if git diff "$PREV_SHA" "$NEW_SHA" -- requirements.txt | grep -q "^[+-]"; then
+                log "GATE $repo — requirements.txt changed, running pip install"
+                if .venv/bin/pip install --quiet -r requirements.txt >> "$LOG" 2>&1; then
+                    log "OK   $repo — deps updated"
+                else
+                    log "FAIL $repo — pip install failed"
+                    PULL_FAILURES=$((PULL_FAILURES + 1))
+                    FAILED_REPOS+=("$repo (pip)")
+                fi
+            fi
+        fi
+
+        # Install flow-doctor from bundled source if this repo has a venv and
+        # flow-doctor is cloned. Matches the trading instance pattern —
+        # editable install overrides the PyPI pin so we can test unreleased
+        # flow-doctor changes without waiting for a release.
+        if [ -f ".venv/bin/pip" ] && [ -d "/home/ec2-user/flow-doctor" ] && [ "$repo" != "/home/ec2-user/flow-doctor" ]; then
+            if .venv/bin/pip install --quiet -e /home/ec2-user/flow-doctor >> "$LOG" 2>&1; then
+                log "OK   $repo — flow-doctor installed"
+            else
+                log "WARN $repo — flow-doctor install failed (non-fatal)"
+            fi
+        fi
+    else
+        log "FAIL $repo — fetch/reset failed"
+        PULL_FAILURES=$((PULL_FAILURES + 1))
+        FAILED_REPOS+=("$repo (git)")
+    fi
+done
+
+# ── Sync systemd unit files from dashboard repo ─────────────────────────────
+# The source of truth for unit files is the repo. This reloads systemd and
+# restarts any service whose unit file actually changed, so drift between
+# the repo and /etc/systemd/system is bounded to ≤1 day.
+SYSTEMD_SRC="/home/ec2-user/alpha-engine-dashboard/infrastructure/systemd"
+if [ -d "$SYSTEMD_SRC" ]; then
+    CHANGED_UNITS=()
+    for unit in "$SYSTEMD_SRC"/*.service "$SYSTEMD_SRC"/*.timer; do
+        [ -f "$unit" ] || continue
+        name=$(basename "$unit")
+        if [ -f "/etc/systemd/system/$name" ]; then
+            if ! diff -q "$unit" "/etc/systemd/system/$name" >/dev/null 2>&1; then
+                sudo cp "$unit" "/etc/systemd/system/$name"
+                log "SYNC $name (updated)"
+                CHANGED_UNITS+=("$name")
+            fi
+        else
+            sudo cp "$unit" "/etc/systemd/system/$name"
+            log "SYNC $name (new)"
+            CHANGED_UNITS+=("$name")
+        fi
+    done
+    if [ ${#CHANGED_UNITS[@]} -gt 0 ]; then
+        sudo systemctl daemon-reload
+        log "systemctl daemon-reload"
+        # Restart changed services. Timers will re-schedule themselves on
+        # daemon-reload automatically.
+        for unit in "${CHANGED_UNITS[@]}"; do
+            if [[ "$unit" == *.service ]] && [ "$unit" != "boot-pull.service" ]; then
+                sudo systemctl restart "$unit" 2>> "$LOG" || log "WARN restart $unit failed"
+                log "RESTART $unit"
+            fi
+        done
+    fi
+fi
+
+# ── Report failures to flow-doctor if any occurred ──────────────────────────
+# Don't rely on the log file alone — flow-doctor's GitHub notifier gives a
+# visible red badge on the repo so the failure isn't invisible in
+# /var/log/boot-pull.log until someone happens to look.
+if [ "$PULL_FAILURES" -gt 0 ]; then
+    log "=== boot-pull completed with $PULL_FAILURES failure(s): ${FAILED_REPOS[*]} ==="
+    # Fire-and-forget report. If flow-doctor itself is broken, the log
+    # above is the fallback signal.
+    FD_VENV="/home/ec2-user/alpha-engine-dashboard/.venv/bin/python"
+    if [ -x "$FD_VENV" ]; then
+        "$FD_VENV" - <<PYEOF 2>> "$LOG" || true
+import sys
+try:
+    import flow_doctor
+    fd = flow_doctor.init(
+        config_path="/home/ec2-user/alpha-engine-dashboard/flow-doctor.yaml",
+    )
+    fd.report(
+        RuntimeError("boot-pull failed: ${FAILED_REPOS[*]}"),
+        severity="error",
+        context={"site": "boot-pull", "failures": "${FAILED_REPOS[*]}"},
+    )
+except Exception as e:
+    print(f"[boot-pull] flow-doctor report failed: {e}", file=sys.stderr)
+PYEOF
+    fi
+    exit 1
+fi
+
+log "=== boot-pull completed successfully ==="
+exit 0
