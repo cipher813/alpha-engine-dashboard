@@ -29,9 +29,10 @@ from datetime import date, datetime, timezone
 import boto3
 import pandas as pd
 
-# polygon_client.py lives in the repo root
+# polygon_client.py and ssm_secrets.py live in the repo root
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from polygon_client import PolygonClient
+from ssm_secrets import load_secrets
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,20 +43,6 @@ log = logging.getLogger(__name__)
 S3_BUCKET = "alpha-engine-research"
 
 
-def _load_env():
-    """Load .env files if present (for POLYGON_API_KEY)."""
-    env_paths = [
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"),
-        os.path.expanduser("~/.alpha-engine.env"),
-    ]
-    for env_path in env_paths:
-        if os.path.exists(env_path):
-            with open(env_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
 
 
 def _write_health(s3, status: str, date_str: str, n_tickers: int = 0, note: str = ""):
@@ -86,7 +73,7 @@ def main():
     date_str = args.date
     dry_run = args.dry_run
 
-    _load_env()
+    load_secrets()
 
     log.info("Fetching prices for %s (dry_run=%s)", date_str, dry_run)
 
