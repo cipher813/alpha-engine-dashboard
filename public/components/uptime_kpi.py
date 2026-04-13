@@ -1,7 +1,7 @@
 """Uptime KPI block — primary metric for the Reliability Hardening phase.
 
 Renders the rolling uptime %, a progress bar toward the 99% target, and
-supporting breakdown numbers (sessions counted, crashes, minutes up).
+supporting breakdown numbers (sessions counted, minutes up).
 """
 
 from __future__ import annotations
@@ -12,16 +12,14 @@ _TARGET_PCT = 99.0
 
 
 def _aggregate(records: list[dict]) -> dict:
-    """Sum across the rolling window. Returns uptime%, connected, market, crashes."""
+    """Sum across the rolling window. Returns uptime%, connected, market, sessions."""
     connected = sum(r.get("connected_minutes", 0) for r in records)
     market = sum(r.get("market_minutes", 0) for r in records)
-    crashes = sum(r.get("crashes", 0) for r in records)
     uptime_pct = (connected / market * 100.0) if market else 0.0
     return {
         "uptime_pct": uptime_pct,
         "connected_minutes": connected,
         "market_minutes": market,
-        "crashes": crashes,
         "sessions": len(records),
     }
 
@@ -62,11 +60,10 @@ def render_uptime_kpi(records: list[dict]) -> None:
     )
     st.markdown(_progress_bar_html(agg["uptime_pct"]), unsafe_allow_html=True)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Uptime", f"{agg['uptime_pct']:.1f}%", delta=f"target {_TARGET_PCT:.0f}%", delta_color="off")
     c2.metric("Sessions Counted", str(agg["sessions"]))
-    c3.metric("Crashes (rolling)", str(agg["crashes"]))
-    c4.metric(
+    c3.metric(
         "Minutes Up / Market Minutes",
         f"{agg['connected_minutes']:,} / {agg['market_minutes']:,}",
     )
