@@ -19,16 +19,18 @@ from components.uptime_kpi import _aggregate, _progress_bar_html  # noqa: E402
 
 def test_aggregate_sums_across_records():
     records = [
-        {"connected_minutes": 390, "market_minutes": 390, "crashes": 0},
-        {"connected_minutes": 200, "market_minutes": 390, "crashes": 2},
-        {"connected_minutes": 390, "market_minutes": 390, "crashes": 0},
+        {"connected_minutes": 390, "market_minutes": 390, "service_restarts": 0},
+        {"connected_minutes": 200, "market_minutes": 390, "service_restarts": 2},
+        {"connected_minutes": 390, "market_minutes": 390, "service_restarts": 0},
     ]
     agg = _aggregate(records)
     assert agg["connected_minutes"] == 980
     assert agg["market_minutes"] == 1170
-    assert agg["crashes"] == 2
     assert agg["sessions"] == 3
     assert round(agg["uptime_pct"], 2) == round(980 / 1170 * 100, 2)
+    # service_restarts is in the JSON but deliberately not surfaced by the KPI
+    assert "service_restarts" not in agg
+    assert "crashes" not in agg
 
 
 def test_aggregate_handles_empty_records():
