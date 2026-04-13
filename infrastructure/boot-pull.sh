@@ -130,7 +130,10 @@ if [ "$PULL_FAILURES" -gt 0 ]; then
     if [ -x "$FD_VENV" ]; then
         "$FD_VENV" - <<PYEOF 2>> "$LOG" || true
 import sys
+sys.path.insert(0, "/home/ec2-user/alpha-engine-dashboard")
 try:
+    from ssm_secrets import load_secrets
+    load_secrets()
     import flow_doctor
     fd = flow_doctor.init(
         config_path="/home/ec2-user/alpha-engine-dashboard/flow-doctor.yaml",
