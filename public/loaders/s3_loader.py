@@ -146,3 +146,38 @@ def load_order_book_summary(date_str: str) -> dict | None:
 def load_predictor_metrics() -> dict | None:
     """Load predictor/metrics/latest.json."""
     return download_s3_json(_research_bucket(), "predictor/metrics/latest.json")
+
+
+@st.cache_data(ttl=_ttl("trades"))
+def load_uptime_history(max_sessions: int = 20) -> list[dict]:
+    """List recent uptime/*.json files and load the most recent `max_sessions`.
+
+    Returns list sorted oldest → newest. Each dict matches the schema written
+    by alpha-engine/executor/uptime_tracker.py.
+    """
+    import json
+
+    client = get_s3_client()
+    bucket = _trades_bucket()
+    try:
+        resp = client.list_objects_v2(Bucket=bucket, Prefix="uptime/")
+    except Exception as e:
+        logger.warning("list uptime/ failed: %s", e)
+        return []
+
+    keys = sorted(
+        (obj["Key"] for obj in resp.get("Contents", []) if obj["Key"].endswith(".json")),
+        reverse=True,
+    )[:max_sessions]
+
+    records: list[dict] = []
+    for key in keys:
+        try:
+            body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+            records.append(json.loads(body))
+        except Exception as e:
+            logger.warning("load %s failed: %s", key, e)
+    # Non-trading-day sentinel records have only {"date","skipped"} — drop them.
+    records = [r for r in records if "connected_minutes" in r]
+    records.sort(key=lambda r: r.get("date", ""))
+    return records
