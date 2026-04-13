@@ -19,7 +19,9 @@ import streamlit as st
 import yaml
 
 from components.header import render_header, render_footer
+from components.phase_indicator import render_phase_indicator, render_phase_caption
 from components.styles import inject_base_css, inject_metric_css
+from components.uptime_kpi import render_uptime_kpi
 from loaders.s3_loader import (
     load_eod_pnl,
     load_trades_full,
@@ -27,8 +29,12 @@ from loaders.s3_loader import (
     load_predictions_json,
     load_order_book_summary,
     load_predictor_metrics,
+    load_uptime_history,
 )
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
+
+_CURRENT_PHASE = "Reliability Hardening"
+_UPTIME_WINDOW_SESSIONS = 20
 
 # Load config
 _config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
@@ -76,6 +82,13 @@ inject_base_css()
 inject_metric_css()
 render_header(current_page="Home")
 
+# ---------------------------------------------------------------------------
+# Phase Indicator (hero framing — above the fold)
+# ---------------------------------------------------------------------------
+
+render_phase_indicator(current_phase=_CURRENT_PHASE)
+render_phase_caption(current_phase=_CURRENT_PHASE)
+
 st.divider()
 
 # ---------------------------------------------------------------------------
@@ -89,6 +102,15 @@ population_data = load_population_json()
 predictions_data = load_predictions_json()
 predictor_metrics = load_predictor_metrics()
 order_book_summary = load_order_book_summary(today)
+uptime_history = load_uptime_history(max_sessions=_UPTIME_WINDOW_SESSIONS)
+
+# ---------------------------------------------------------------------------
+# Section 0: Reliability — current-phase primary KPI
+# ---------------------------------------------------------------------------
+
+render_uptime_kpi(uptime_history)
+
+st.divider()
 
 if eod is None or eod.empty:
     st.warning("Portfolio data temporarily unavailable. Please check back later.")
@@ -140,8 +162,14 @@ down_days = (eod_active["daily_alpha"] < 0).sum()
 total_days = len(eod_active)
 
 # ===========================================================================
-# Section 1: Performance — KPIs + Charts
+# Section 1: Performance — Secondary KPIs (Phase 3 primary metric)
 # ===========================================================================
+
+st.markdown("### Portfolio Performance — Secondary Metric")
+st.caption(
+    "Alpha is tracked but not optimized until uptime reaches 99%. "
+    "Phase 2 crashes skew short-run results; these numbers will become the headline KPI in Phase 3."
+)
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Inception", inception_date.strftime("%b %d, %Y"))
