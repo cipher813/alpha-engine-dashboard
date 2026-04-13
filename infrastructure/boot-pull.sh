@@ -122,30 +122,37 @@ fi
 # Don't rely on the log file alone — flow-doctor's GitHub notifier gives a
 # visible red badge on the repo so the failure isn't invisible in
 # /var/log/boot-pull.log until someone happens to look.
+#
+# Any exception from the heredoc (flow_doctor.init failing its GitHub token
+# preflight, SSM fetch failing, etc.) propagates as a non-zero exit so the
+# systemd service is marked failed and journal shows the traceback. A broken
+# reporter is itself a critical failure — silently swallowing it is what
+# caused the original "issues stop appearing" invisible-outage class of bug.
 if [ "$PULL_FAILURES" -gt 0 ]; then
     log "=== boot-pull completed with $PULL_FAILURES failure(s): ${FAILED_REPOS[*]} ==="
-    # Fire-and-forget report. If flow-doctor itself is broken, the log
-    # above is the fallback signal.
     FD_VENV="/home/ec2-user/alpha-engine-dashboard/.venv/bin/python"
-    if [ -x "$FD_VENV" ]; then
-        "$FD_VENV" - <<PYEOF 2>> "$LOG" || true
+    if [ ! -x "$FD_VENV" ]; then
+        log "ERROR: flow-doctor venv not executable at $FD_VENV — cannot report"
+        exit 2
+    fi
+    if ! "$FD_VENV" - <<PYEOF 2>> "$LOG"
 import sys
 sys.path.insert(0, "/home/ec2-user/alpha-engine-dashboard")
-try:
-    from ssm_secrets import load_secrets
-    load_secrets()
-    import flow_doctor
-    fd = flow_doctor.init(
-        config_path="/home/ec2-user/alpha-engine-dashboard/flow-doctor.yaml",
-    )
-    fd.report(
-        RuntimeError("boot-pull failed: ${FAILED_REPOS[*]}"),
-        severity="error",
-        context={"site": "boot-pull", "failures": "${FAILED_REPOS[*]}"},
-    )
-except Exception as e:
-    print(f"[boot-pull] flow-doctor report failed: {e}", file=sys.stderr)
+from ssm_secrets import load_secrets
+load_secrets()
+import flow_doctor
+fd = flow_doctor.init(
+    config_path="/home/ec2-user/alpha-engine-dashboard/flow-doctor.yaml",
+)
+fd.report(
+    RuntimeError("boot-pull failed: ${FAILED_REPOS[*]}"),
+    severity="error",
+    context={"site": "boot-pull", "failures": "${FAILED_REPOS[*]}"},
+)
 PYEOF
+    then
+        log "ERROR: flow-doctor reporter failed — see traceback above. Pull failures were: ${FAILED_REPOS[*]}"
+        exit 3
     fi
     exit 1
 fi
