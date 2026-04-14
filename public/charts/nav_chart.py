@@ -7,11 +7,96 @@ import pandas as pd
 import plotly.graph_objects as go
 
 
-def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
+_DOWNTIME_FLOOR_PCT = 0.05  # skip trivial IB reconnect blips
+_DOWNTIME_COLOR_RGB = "255, 165, 0"  # amber — distinct from red/green alpha shading
+
+
+def _build_downtime_overlays(
+    uptime_records: list[dict],
+    dates: pd.Series,
+    port_cum: pd.Series,
+) -> tuple[list[dict], go.Scatter | None]:
+    """Return (vrect shapes, hover-marker scatter trace) for days with meaningful downtime.
+
+    Each vrect is a one-day amber band whose opacity scales with downtime fraction.
+    The scatter trace places amber diamonds on the portfolio line for those days;
+    unified hover merges their text into the per-date tooltip.
+    """
+    if not uptime_records or dates.empty:
+        return [], None
+
+    chart_start, chart_end = dates.min(), dates.max()
+    port_cum_by_date = dict(zip(dates, port_cum))
+
+    shapes: list[dict] = []
+    hover_x, hover_y, hover_text = [], [], []
+
+    for rec in uptime_records:
+        date_str = rec.get("date")
+        market_min = rec.get("market_minutes") or 0
+        connected_min = rec.get("connected_minutes") or 0
+        if not date_str or market_min <= 0:
+            continue
+        down_min = max(0, market_min - connected_min)
+        down_pct = down_min / market_min
+        if down_pct < _DOWNTIME_FLOOR_PCT:
+            continue
+
+        d = pd.Timestamp(date_str)
+        if d < chart_start or d > chart_end:
+            continue
+
+        alpha = 0.10 + 0.45 * down_pct
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x", yref="paper",
+                x0=d - pd.Timedelta(hours=12),
+                x1=d + pd.Timedelta(hours=12),
+                y0=0, y1=1,
+                fillcolor=f"rgba({_DOWNTIME_COLOR_RGB}, {alpha:.2f})",
+                line=dict(width=0),
+                layer="below",
+            )
+        )
+        hover_x.append(d)
+        hover_y.append(port_cum_by_date.get(d, 0))
+        hover_text.append(
+            f"<b>{d.strftime('%Y-%m-%d')}</b><br>"
+            f"Executor downtime: {down_min} of {market_min} min "
+            f"({down_pct * 100:.0f}%)"
+        )
+
+    if not hover_x:
+        return shapes, None
+
+    marker_trace = go.Scatter(
+        x=hover_x,
+        y=hover_y,
+        mode="markers",
+        marker=dict(
+            size=8,
+            color=f"rgba({_DOWNTIME_COLOR_RGB}, 0.9)",
+            symbol="diamond-open",
+            line=dict(width=1.5, color=f"rgba({_DOWNTIME_COLOR_RGB}, 1.0)"),
+        ),
+        name="Executor downtime",
+        hovertext=hover_text,
+        hoverinfo="text",
+    )
+    return shapes, marker_trace
+
+
+def make_nav_chart(
+    eod_df: pd.DataFrame,
+    uptime_records: list[dict] | None = None,
+) -> go.Figure:
     """
     Portfolio vs SPY cumulative return chart with shaded alpha regions.
 
-    eod_df needs columns: date, daily_return_pct, spy_return_pct
+    eod_df needs columns: date, daily_return_pct, spy_return_pct.
+    uptime_records (optional) is the list returned by load_uptime_history;
+    days with meaningful executor downtime get amber bands + hover markers.
     """
     if eod_df is None or eod_df.empty:
         fig = go.Figure()
@@ -117,7 +202,15 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
         )
     )
 
+    downtime_shapes, downtime_marker = _build_downtime_overlays(
+        uptime_records or [], dates, port_cum
+    )
+    if downtime_marker is not None:
+        traces.append(downtime_marker)
+
     fig = go.Figure(data=traces)
+    if downtime_shapes:
+        fig.update_layout(shapes=downtime_shapes)
     fig.update_layout(
         xaxis=dict(
             title="", showgrid=True,

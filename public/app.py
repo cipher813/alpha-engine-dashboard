@@ -102,7 +102,8 @@ population_data = load_population_json()
 predictions_data = load_predictions_json()
 predictor_metrics = load_predictor_metrics()
 order_book_summary = load_order_book_summary(today)
-uptime_history = load_uptime_history(max_sessions=_UPTIME_WINDOW_SESSIONS)
+uptime_full_history = load_uptime_history(max_sessions=500)
+uptime_history = uptime_full_history[-_UPTIME_WINDOW_SESSIONS:]
 
 # ---------------------------------------------------------------------------
 # Section 0: Reliability — current-phase primary KPI
@@ -185,8 +186,12 @@ col4.metric("Alpha Days", f"{up_days} ▲  {down_days} ▼")
 # NAV vs SPY chart
 _perf_date = eod["date"].iloc[-1].strftime("%Y-%m-%d")
 st.markdown("### Portfolio vs S&P 500")
-st.caption(f"As of {_perf_date}")
-fig_nav = make_nav_chart(eod)
+st.caption(
+    f"As of {_perf_date}. Amber bands mark sessions where the executor was "
+    f"disconnected during market hours — band opacity scales with downtime share. "
+    f"Hover for detail."
+)
+fig_nav = make_nav_chart(eod, uptime_records=uptime_full_history)
 st.plotly_chart(fig_nav, width="stretch")
 
 # Alpha stats
