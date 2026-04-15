@@ -433,6 +433,46 @@ def load_backtest_file(date_str: str, filename: str) -> dict | list | pd.DataFra
         return download_s3_text(_research_bucket(), key)
 
 
+@st.cache_data(ttl=3600)
+def load_uptime_history(n_days: int = 15) -> "pd.DataFrame":
+    """Load the last n_days of uptime/{date}.json files from S3.
+
+    Returns a DataFrame with columns: date, active_minutes, connected_minutes,
+    market_minutes, uptime_pct, service_restarts. Empty DataFrame on failure.
+    """
+    bucket = _research_bucket()
+    try:
+        client = get_s3_client()
+        paginator = client.get_paginator("list_objects_v2")
+        keys: list[str] = []
+        for page in paginator.paginate(Bucket=bucket, Prefix="uptime/"):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                fname = key.split("/")[-1]
+                if re.match(r"^\d{4}-\d{2}-\d{2}\.json$", fname):
+                    keys.append(key)
+
+        keys.sort(reverse=True)
+        keys = keys[:n_days]
+
+        rows = []
+        for key in keys:
+            data = _fetch_s3_json(bucket, key)
+            if data and isinstance(data, dict) and "date" in data and not data.get("skipped"):
+                rows.append(data)
+
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        df["date"] = pd.to_datetime(df["date"])
+        return df.sort_values("date").reset_index(drop=True)
+    except Exception as e:
+        logger.error("load_uptime_history failed: %s", e)
+        _record_s3_error(bucket, "uptime/", type(e).__name__, str(e))
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=_ttl("signals"), show_spinner=False)
 def load_predictions_json(date_str: str | None = None) -> dict:
     """Load predictor predictions from S3. Returns {} on any failure."""

@@ -18,6 +18,7 @@ import sys
 from datetime import date, datetime
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ from loaders.s3_loader import (
     load_predictions_json,
     load_predictor_metrics,
     load_trades_full,
+    load_uptime_history,
 )
 from shared.constants import get_thresholds
 from shared.formatters import format_dollar, regime_label
@@ -115,6 +117,109 @@ def _status_icon(status: str) -> str:
 # ---------------------------------------------------------------------------
 # Section renderers
 # ---------------------------------------------------------------------------
+
+
+def _render_uptime_chart(uptime_df: pd.DataFrame) -> None:
+    """Bar chart: connected_minutes per trading day, colour-coded by uptime %."""
+    if uptime_df is None or uptime_df.empty:
+        st.caption("No uptime data available yet.")
+        return
+
+    uptime_pct = uptime_df.get("uptime_pct", pd.Series(dtype=float)).fillna(0)
+    colors = [
+        "#2ecc71" if p >= 0.90 else "#f39c12" if p >= 0.50 else "#e74c3c"
+        for p in uptime_pct
+    ]
+    dates = uptime_df["date"].dt.strftime("%m/%d")
+    connected = uptime_df.get("connected_minutes", pd.Series(dtype=float))
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=dates,
+        y=connected,
+        marker_color=colors,
+        text=[f"{p:.0%}" for p in uptime_pct],
+        textposition="outside",
+        hovertemplate="<b>%{x}</b><br>Connected: %{y} min<br>Uptime: %{text}<extra></extra>",
+    ))
+    fig.add_hline(
+        y=390, line_dash="dot", line_color="gray", opacity=0.4,
+        annotation_text="390 min (full session)", annotation_position="top right",
+    )
+    fig.update_layout(
+        height=260,
+        margin=dict(l=0, r=0, t=24, b=0),
+        yaxis=dict(title="minutes", range=[0, 450]),
+        xaxis=dict(title=None),
+        showlegend=False,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def _render_evaluator_grades_chart() -> None:
+    """Line chart: Research / Predictor / Executor / Overall grades over backtest dates."""
+    dates = list_backtest_dates()
+    if not dates:
+        st.caption("No backtest results available yet.")
+        return
+
+    rows = []
+    for d in dates[:16]:  # last ~4 months of weekly runs
+        metrics = load_backtest_file(d, "metrics.json")
+        if not metrics or not isinstance(metrics, dict) or "report_card" not in metrics:
+            continue
+        rc = metrics["report_card"]
+        rows.append({
+            "date": d,
+            "Research": rc.get("research", {}).get("grade"),
+            "Predictor": rc.get("predictor", {}).get("grade"),
+            "Executor": rc.get("executor", {}).get("grade"),
+            "Overall": rc.get("overall", {}).get("grade"),
+        })
+
+    if not rows:
+        st.caption("Grade history not available.")
+        return
+
+    df = pd.DataFrame(rows).sort_values("date")
+
+    _MODULE_COLORS = {
+        "Research": "#3498db",
+        "Predictor": "#e67e22",
+        "Executor": "#27ae60",
+    }
+    fig = go.Figure()
+    for module, color in _MODULE_COLORS.items():
+        valid = df[df[module].notna()]
+        if valid.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=valid["date"], y=valid[module], name=module,
+            line=dict(color=color, width=2),
+            mode="lines+markers",
+            hovertemplate=f"<b>{module}</b><br>%{{x}}<br>Grade: %{{y:.0f}}<extra></extra>",
+        ))
+    valid_overall = df[df["Overall"].notna()]
+    if not valid_overall.empty:
+        fig.add_trace(go.Scatter(
+            x=valid_overall["date"], y=valid_overall["Overall"], name="Overall",
+            line=dict(color="#2c3e50", width=2, dash="dash"),
+            mode="lines+markers",
+            hovertemplate="<b>Overall</b><br>%{x}<br>Grade: %{y:.0f}<extra></extra>",
+        ))
+
+    fig.update_layout(
+        height=260,
+        margin=dict(l=0, r=0, t=24, b=0),
+        yaxis=dict(title="grade (0–100)", range=[0, 100]),
+        xaxis=dict(title=None),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_status_banner(health_rows: list[dict]) -> None:
@@ -362,9 +467,16 @@ def main() -> None:
         order_book_summary = load_order_book_summary(today)
         predictor_metrics = load_predictor_metrics()
         health_rows = _load_module_health()
+        uptime_df = load_uptime_history(n_days=15)
 
-    st.subheader("Pipeline Status")
-    _render_status_banner(health_rows)
+    st.subheader("Reliability")
+    col_uptime, col_grades = st.columns(2)
+    with col_uptime:
+        st.markdown("**Daily Uptime** — executor session (market hours, last 15 trading days)")
+        _render_uptime_chart(uptime_df)
+    with col_grades:
+        st.markdown("**System Grades** — evaluator scorecard (weekly)")
+        _render_evaluator_grades_chart()
 
     st.divider()
     st.subheader("Today's Activity")
