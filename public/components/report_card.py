@@ -4,9 +4,11 @@ Structural quality data sourced from `backtest/{date}/grading.json`. Complements
 the Uptime KPI: uptime answers "is the system running?", the report card
 answers "is it running well?"
 
-Most sub-components are N/A today because they need multiple weeks of signal
-history to grade. Copy surfaces this honestly — hiding it would look dishonest
-as the grid fills in.
+Deliberately conservative surface area: shows letter + numeric grade per
+module, and letter + N/A reason per sub-component. Raw backing stats
+(Sharpe, rank IC, alpha, hit rate) stay in the internal dashboard because
+the Phase-2 sample is too small for them to be meaningfully interpreted
+by outside observers.
 """
 
 from __future__ import annotations
@@ -24,6 +26,31 @@ _GRADE_COLORS = {
     "N/A": "#666",
 }
 
+# Common acronyms that naive .title() mangles. Applied after word splitting.
+_ACRONYMS = {
+    "cio": "CIO",
+    "gbm": "GBM",
+    "vwap": "VWAP",
+    "eod": "EOD",
+    "spy": "SPY",
+    "ic": "IC",
+    "atr": "ATR",
+    "sla": "SLA",
+}
+
+
+def _pretty_label(key: str) -> str:
+    """Convert snake_case component keys into display labels, preserving acronyms."""
+    parts = key.split("_")
+    out = []
+    for p in parts:
+        lower = p.lower()
+        if lower in _ACRONYMS:
+            out.append(_ACRONYMS[lower])
+        else:
+            out.append(p.capitalize())
+    return " ".join(out)
+
 
 def _grade_color(letter: str | None) -> str:
     if not letter:
@@ -37,45 +64,19 @@ def _format_numeric(grade: float | int | None) -> str:
     return f"{grade:.0f}/100"
 
 
-def _key_metric_line(module_key: str, module: dict) -> str:
-    """Pull one crisp detail line from the module's graded components."""
-    components = module.get("components", {}) or {}
-    if module_key == "research":
-        comp = components.get("composite_scoring", {})
-        detail = comp.get("detail") or {}
-        acc = detail.get("accuracy_10d")
-        if acc:
-            return f"10d accuracy: {acc}"
-    if module_key == "predictor":
-        comp = components.get("gbm_model", {})
-        detail = comp.get("detail") or {}
-        ic = detail.get("rank_ic")
-        if ic:
-            return f"Rank IC: {ic}"
-    if module_key == "executor":
-        comp = components.get("portfolio", {})
-        detail = comp.get("detail") or {}
-        sharpe = detail.get("sharpe")
-        if sharpe:
-            return f"Sharpe: {sharpe}"
-    return ""
-
-
-def _render_component_expander(module_key: str, module: dict) -> None:
+def _render_component_expander(module: dict) -> None:
     components = module.get("components", {}) or {}
     with st.expander("Component detail"):
         any_row = False
         for comp_key, comp in components.items():
             if comp_key == "sector_teams":
-                # Array of team dicts — skip for the public view, the per-module
-                # grade already rolls them up via sector_teams_avg.
+                # Array of team dicts — rolled up via sector_teams_avg.
                 continue
             if not isinstance(comp, dict):
                 continue
             letter = comp.get("letter", "N/A")
-            grade = comp.get("grade")
             color = _grade_color(letter)
-            label = comp_key.replace("_", " ").title()
+            label = _pretty_label(comp_key)
             if letter == "N/A":
                 reason = comp.get("reason") or "insufficient data"
                 st.markdown(
@@ -85,15 +86,11 @@ def _render_component_expander(module_key: str, module: dict) -> None:
                     unsafe_allow_html=True,
                 )
             else:
-                detail = comp.get("detail") or {}
-                detail_bits = " · ".join(f"{k}: {v}" for k, v in detail.items())
-                numeric = _format_numeric(grade)
+                # Letter only — no backing metrics surfaced on the public site.
                 st.markdown(
                     f'<div style="padding:4px 0;">'
                     f'{label} — <span style="color:{color}; font-weight:600;">'
-                    f'{letter}</span> ({numeric})'
-                    f'{" · " + detail_bits if detail_bits else ""}'
-                    f'</div>',
+                    f'{letter}</span></div>',
                     unsafe_allow_html=True,
                 )
             any_row = True
@@ -101,7 +98,7 @@ def _render_component_expander(module_key: str, module: dict) -> None:
             st.caption("No component detail reported for this module.")
 
 
-def _render_tile(column, module_key: str, display_name: str, module: dict | None) -> None:
+def _render_tile(column, display_name: str, module: dict | None) -> None:
     with column:
         if not module:
             st.markdown(f"**{display_name}**")
@@ -122,14 +119,7 @@ def _render_tile(column, module_key: str, display_name: str, module: dict | None
             unsafe_allow_html=True,
         )
         st.caption(_format_numeric(grade))
-        metric_line = _key_metric_line(module_key, module)
-        if metric_line:
-            st.markdown(
-                f'<div style="color:#bbb; font-size:13px; margin-top:4px;">'
-                f'{metric_line}</div>',
-                unsafe_allow_html=True,
-            )
-        _render_component_expander(module_key, module)
+        _render_component_expander(module)
 
 
 def render_report_card(grading: dict | None) -> None:
@@ -156,9 +146,9 @@ def render_report_card(grading: dict | None) -> None:
     )
 
     c1, c2, c3 = st.columns(3)
-    _render_tile(c1, "research", "Research", grading.get("research"))
-    _render_tile(c2, "predictor", "Predictor", grading.get("predictor"))
-    _render_tile(c3, "executor", "Executor", grading.get("executor"))
+    _render_tile(c1, "Research", grading.get("research"))
+    _render_tile(c2, "Predictor", grading.get("predictor"))
+    _render_tile(c3, "Executor", grading.get("executor"))
 
     run_date = grading.get("_run_date")
     if run_date:
