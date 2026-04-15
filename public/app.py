@@ -21,14 +21,16 @@ import yaml
 from components.header import render_header, render_footer
 from components.phase_indicator import render_phase_indicator, render_phase_caption
 from components.styles import inject_base_css, inject_metric_css
+from components.report_card import render_report_card
 from components.uptime_kpi import render_uptime_kpi
 from loaders.s3_loader import (
     load_eod_pnl,
-    load_trades_full,
+    load_latest_grading,
+    load_order_book_summary,
     load_population_json,
     load_predictions_json,
-    load_order_book_summary,
     load_predictor_metrics,
+    load_trades_full,
     load_uptime_history,
 )
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
@@ -103,12 +105,21 @@ predictions_data = load_predictions_json()
 predictor_metrics = load_predictor_metrics()
 order_book_summary = load_order_book_summary(today)
 uptime_history = load_uptime_history(max_sessions=_UPTIME_WINDOW_SESSIONS)
+grading = load_latest_grading()
 
 # ---------------------------------------------------------------------------
 # Section 0: Reliability — current-phase primary KPI
 # ---------------------------------------------------------------------------
 
 render_uptime_kpi(uptime_history)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Section 0.5: System Report Card — structural quality from weekly evaluator
+# ---------------------------------------------------------------------------
+
+render_report_card(grading)
 
 st.divider()
 
@@ -186,8 +197,14 @@ col4.metric("Alpha Days", f"{up_days} ▲  {down_days} ▼")
 _perf_date = eod["date"].iloc[-1].strftime("%Y-%m-%d")
 st.markdown("### Portfolio vs S&P 500")
 st.caption(f"As of {_perf_date}")
-fig_nav = make_nav_chart(eod)
+fig_nav = make_nav_chart(eod, uptime_records=uptime_history)
 st.plotly_chart(fig_nav, width="stretch")
+st.caption(
+    "Vertical amber lines mark days with major executor incidents "
+    f"(≥10% downtime or ≥5 service restarts). Reliability is tracked via "
+    "the System Report Card above; raw alpha numbers will become the "
+    "headline KPI in Phase 3."
+)
 
 # Alpha stats
 st.markdown("### Alpha Performance")
