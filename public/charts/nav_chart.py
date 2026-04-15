@@ -3,11 +3,115 @@ NAV vs SPY cumulative return chart for the Nous Ergon public site.
 Adapted from alpha-engine-dashboard/charts/nav_chart.py.
 """
 
+from datetime import datetime
+
 import pandas as pd
 import plotly.graph_objects as go
 
+# Incident thresholds — a day counts as an "incident" if EITHER is breached.
+_INCIDENT_DOWNTIME_PCT = 0.10
+_INCIDENT_RESTARTS = 5
+_INCIDENT_COLOR = "rgba(255,165,0,0.6)"
 
-def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
+
+def _incident_hover(record: dict) -> str:
+    """Build the hover text for an incident day."""
+    date_str = record.get("date", "")
+    restarts = record.get("service_restarts", 0) or 0
+    connected = record.get("connected_minutes", 0) or 0
+    market = record.get("market_minutes", 0) or 0
+    downtime_pct = 1.0 - (connected / market) if market else 0.0
+
+    if restarts >= _INCIDENT_RESTARTS and downtime_pct < _INCIDENT_DOWNTIME_PCT:
+        return f"{date_str} — Crash loop ({restarts} service restarts)"
+    if downtime_pct >= _INCIDENT_DOWNTIME_PCT and restarts >= _INCIDENT_RESTARTS:
+        return (
+            f"{date_str} — Partial session ({connected} of {market} min, "
+            f"{restarts} restarts)"
+        )
+    return (
+        f"{date_str} — Partial session ({connected} of {market} min)"
+    )
+
+
+def _build_incident_markers(
+    uptime_records: list[dict] | None,
+    chart_dates: pd.Series,
+    y_top: float,
+) -> tuple[list[dict], go.Scatter | None]:
+    """Return (shapes, scatter_marker) for incident days within the chart range.
+
+    Shapes are vertical dashed amber lines. Scatter provides the triangle
+    markers + hover text pinned near the top of the chart.
+    """
+    if not uptime_records or chart_dates.empty:
+        return [], None
+
+    chart_start = chart_dates.min()
+    chart_end = chart_dates.max()
+
+    incidents: list[tuple[datetime, dict]] = []
+    for rec in uptime_records:
+        date_raw = rec.get("date")
+        if not date_raw:
+            continue
+        try:
+            d = pd.to_datetime(date_raw)
+        except Exception:
+            continue
+        if d < chart_start or d > chart_end:
+            continue
+        restarts = rec.get("service_restarts", 0) or 0
+        connected = rec.get("connected_minutes", 0) or 0
+        market = rec.get("market_minutes", 0) or 0
+        downtime_pct = 1.0 - (connected / market) if market else 0.0
+        if downtime_pct >= _INCIDENT_DOWNTIME_PCT or restarts >= _INCIDENT_RESTARTS:
+            incidents.append((d, rec))
+
+    if not incidents:
+        return [], None
+
+    shapes = [
+        dict(
+            type="line",
+            xref="x",
+            yref="paper",
+            x0=d,
+            x1=d,
+            y0=0,
+            y1=1,
+            line=dict(color=_INCIDENT_COLOR, width=1, dash="dash"),
+            layer="below",
+        )
+        for d, _ in incidents
+    ]
+
+    marker_x = [d for d, _ in incidents]
+    marker_y = [y_top] * len(incidents)
+    marker_text = [_incident_hover(rec) for _, rec in incidents]
+
+    scatter = go.Scatter(
+        x=marker_x,
+        y=marker_y,
+        mode="markers",
+        marker=dict(
+            symbol="triangle-up",
+            size=10,
+            color=_INCIDENT_COLOR,
+            line=dict(color=_INCIDENT_COLOR, width=0),
+        ),
+        name="Incident days",
+        hovertext=marker_text,
+        hoverinfo="text",
+        showlegend=True,
+    )
+    return shapes, scatter
+
+
+def make_nav_chart(
+    eod_df: pd.DataFrame,
+    uptime_records: list[dict] | None = None,
+) -> go.Figure:
     """
     Portfolio vs SPY cumulative return chart with shaded alpha regions.
 
@@ -117,7 +221,19 @@ def make_nav_chart(eod_df: pd.DataFrame) -> go.Figure:
         )
     )
 
+    # Incident markers — vertical dashed amber line + triangle marker on days
+    # that breached either the downtime or restart threshold. Pinned to the
+    # top of the visible y-range so the triangle reads as a header annotation.
+    y_top = max(float(port_cum.max()), float(spy_cum.max()), 0.0)
+    incident_shapes, incident_scatter = _build_incident_markers(
+        uptime_records, dates, y_top
+    )
+    if incident_scatter is not None:
+        traces.append(incident_scatter)
+
     fig = go.Figure(data=traces)
+    if incident_shapes:
+        fig.update_layout(shapes=incident_shapes)
     fig.update_layout(
         xaxis=dict(
             title="", showgrid=True,
