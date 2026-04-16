@@ -1,0 +1,291 @@
+"""
+health_checker.py — Data staleness and pipeline health checks.
+
+Checks freshness of all critical data stores and flags stale data.
+Designed to be called by the dashboard health page or as a standalone script.
+
+Usage:
+    python health_checker.py                    # check all, print report
+    python health_checker.py --json             # machine-readable output
+    python health_checker.py --alert            # send SNS alert on failures
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+from datetime import date, datetime, timedelta, timezone
+
+import boto3
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_BUCKET = "alpha-engine-research"
+
+# Staleness thresholds (calendar days)
+THRESHOLDS = {
+    "signals": 8,           # Research runs weekly Saturday
+    "predictions": 2,       # Predictor runs daily Mon-Fri
+    "features": 2,          # Feature store runs daily Mon-Fri
+    "fundamentals": 100,    # FMP quarterly, updated weekly in DataPhase1
+    "price_cache_slim": 8,  # Slim cache rebuilt weekly Saturday
+    "daily_closes": 2,      # Daily Mon-Fri
+    "population": 8,        # Updated weekly by Research
+}
+
+
+def _last_modified_age(s3, bucket: str, key: str) -> tuple[str | None, int | None]:
+    """Get the last modified date and age in days for an S3 object."""
+    try:
+        resp = s3.head_object(Bucket=bucket, Key=key)
+        modified = resp["LastModified"]
+        age = (datetime.now(timezone.utc) - modified).days
+        return modified.strftime("%Y-%m-%d %H:%M UTC"), age
+    except Exception:
+        return None, None
+
+
+def _find_latest_prefix(s3, bucket: str, prefix: str) -> tuple[str | None, int | None]:
+    """Find the most recent date-keyed object under a prefix."""
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        latest_date = None
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix, MaxKeys=100):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                # Extract date from key like signals/2026-04-03/signals.json
+                parts = key.replace(prefix, "").split("/")
+                for part in parts:
+                    if len(part) == 10 and part[4] == "-" and part[7] == "-":
+                        try:
+                            d = date.fromisoformat(part)
+                            if latest_date is None or d > latest_date:
+                                latest_date = d
+                        except ValueError:
+                            pass
+        if latest_date:
+            age = (date.today() - latest_date).days
+            return str(latest_date), age
+        return None, None
+    except Exception:
+        return None, None
+
+
+def check_all(bucket: str = DEFAULT_BUCKET) -> list[dict]:
+    """Run all health checks. Returns list of check results."""
+    s3 = boto3.client("s3")
+    results = []
+
+    # 1. Signals (latest.json pointer)
+    modified, age = _last_modified_age(s3, bucket, "signals/latest.json")
+    if modified is None:
+        # Fallback: scan signals/ prefix
+        modified, age = _find_latest_prefix(s3, bucket, "signals/")
+    threshold = THRESHOLDS["signals"]
+    results.append({
+        "check": "signals",
+        "last_updated": modified,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 2. Predictions
+    modified, age = _last_modified_age(s3, bucket, "predictor/predictions/latest.json")
+    threshold = THRESHOLDS["predictions"]
+    results.append({
+        "check": "predictions",
+        "last_updated": modified,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 3. Feature store
+    today_str = date.today().isoformat()
+    modified, age = _last_modified_age(s3, bucket, f"features/{today_str}/technical.parquet")
+    if modified is None:
+        # Check yesterday
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        modified, age = _last_modified_age(s3, bucket, f"features/{yesterday}/technical.parquet")
+    threshold = THRESHOLDS["features"]
+    results.append({
+        "check": "features",
+        "last_updated": modified,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 4. Fundamentals
+    latest_date, age = _find_latest_prefix(s3, bucket, "archive/fundamentals/")
+    threshold = THRESHOLDS["fundamentals"]
+    results.append({
+        "check": "fundamentals",
+        "last_updated": latest_date,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 5. Population
+    modified, age = _last_modified_age(s3, bucket, "population/latest.json")
+    threshold = THRESHOLDS["population"]
+    results.append({
+        "check": "population",
+        "last_updated": modified,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 6. Price cache slim
+    latest_date, age = _find_latest_prefix(s3, bucket, "predictor/price_cache_slim/")
+    threshold = THRESHOLDS["price_cache_slim"]
+    results.append({
+        "check": "price_cache_slim",
+        "last_updated": latest_date,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 7. Daily closes
+    today_str_dc = date.today().isoformat()
+    modified, age = _last_modified_age(s3, bucket, f"predictor/daily_closes/{today_str_dc}.parquet")
+    if modified is None:
+        yesterday_dc = (date.today() - timedelta(days=1)).isoformat()
+        modified, age = _last_modified_age(s3, bucket, f"predictor/daily_closes/{yesterday_dc}.parquet")
+    threshold = THRESHOLDS["daily_closes"]
+    results.append({
+        "check": "daily_closes",
+        "last_updated": modified,
+        "age_days": age,
+        "threshold_days": threshold,
+        "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
+    })
+
+    # 8. Module health markers
+    for module in ["data_phase1", "data_phase2", "executor", "predictor"]:
+        modified, age = _last_modified_age(s3, bucket, f"health/{module}.json")
+        results.append({
+            "check": f"health/{module}",
+            "last_updated": modified,
+            "age_days": age,
+            "threshold_days": 2,
+            "status": "ok" if age is not None and age <= 2 else "stale" if age is not None else "missing",
+        })
+
+    return results
+
+
+def format_report(results: list[dict]) -> str:
+    """Format results as a human-readable report."""
+    lines = ["Data Health Report", "=" * 50]
+    n_ok = sum(1 for r in results if r["status"] == "ok")
+    n_stale = sum(1 for r in results if r["status"] == "stale")
+    n_missing = sum(1 for r in results if r["status"] == "missing")
+    lines.append(f"OK: {n_ok}  Stale: {n_stale}  Missing: {n_missing}")
+    lines.append("")
+
+    for r in results:
+        icon = {"ok": "✓", "stale": "⚠", "missing": "✗"}[r["status"]]
+        age_str = f"{r['age_days']}d" if r["age_days"] is not None else "N/A"
+        lines.append(
+            f"  {icon} {r['check']:25s} age={age_str:5s} "
+            f"threshold={r['threshold_days']}d  "
+            f"last={r['last_updated'] or 'never'}"
+        )
+
+    failures = [r for r in results if r["status"] != "ok"]
+    if failures:
+        lines.append("")
+        lines.append("ACTIONS NEEDED:")
+        for r in failures:
+            lines.append(f"  - {r['check']}: {r['status']} ({r.get('last_updated', 'never')})")
+
+    return "\n".join(lines)
+
+
+def _emit_cloudwatch_metrics(results: list[dict]) -> None:
+    """Publish health check metrics to CloudWatch for dashboarding and alarms."""
+    try:
+        cw = boto3.client("cloudwatch", region_name="us-east-1")
+        metric_data = []
+
+        # Per-check staleness age
+        for r in results:
+            age = r.get("age_days")
+            if age is not None:
+                metric_data.append({
+                    "MetricName": "DataStalenessAge",
+                    "Dimensions": [{"Name": "Check", "Value": r["check"]}],
+                    "Value": float(age),
+                    "Unit": "Count",
+                })
+
+        # Aggregate: total OK vs failures
+        n_ok = sum(1 for r in results if r["status"] == "ok")
+        n_fail = sum(1 for r in results if r["status"] != "ok")
+        metric_data.append({
+            "MetricName": "HealthChecksOK",
+            "Value": float(n_ok),
+            "Unit": "Count",
+        })
+        metric_data.append({
+            "MetricName": "HealthChecksFailed",
+            "Value": float(n_fail),
+            "Unit": "Count",
+        })
+
+        if metric_data:
+            # CloudWatch PutMetricData max 20 per call
+            for i in range(0, len(metric_data), 20):
+                cw.put_metric_data(
+                    Namespace="AlphaEngine",
+                    MetricData=metric_data[i:i+20],
+                )
+            logger.info("Emitted %d CloudWatch metrics", len(metric_data))
+    except Exception as e:
+        logger.warning("CloudWatch metric emission failed (non-fatal): %s", e)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Check data pipeline health")
+    parser.add_argument("--json", action="store_true", help="JSON output")
+    parser.add_argument("--bucket", default=DEFAULT_BUCKET)
+    parser.add_argument("--alert", action="store_true", help="Send SNS alert on failures")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.WARNING)
+    results = check_all(args.bucket)
+
+    if args.json:
+        print(json.dumps(results, indent=2, default=str))
+    else:
+        print(format_report(results))
+
+    # Emit CloudWatch metrics
+    _emit_cloudwatch_metrics(results)
+
+    failures = [r for r in results if r["status"] != "ok"]
+    if failures and args.alert:
+        try:
+            topic_arn = os.environ.get("SNS_TOPIC_ARN", "arn:aws:sns:us-east-1:711398986525:alpha-engine-alerts")
+            sns_client = boto3.client("sns", region_name="us-east-1")
+            sns_client.publish(
+                TopicArn=topic_arn,
+                Subject="Alpha Engine — Data Staleness Alert",
+                Message=format_report(results),
+            )
+        except Exception as e:
+            logger.warning("SNS alert failed: %s", e)
+
+    sys.exit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()
