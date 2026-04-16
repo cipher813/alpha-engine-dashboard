@@ -49,8 +49,8 @@ for repo in "${REPOS[@]}"; do
         NEW_SHA=$(git rev-parse HEAD 2>/dev/null || echo "none")
         log "OK   $repo — $(git log --oneline -1)"
 
-        # Only run pip install if requirements.txt actually changed — pip is
-        # slow on a 1GB instance and runs every day even when no deps moved.
+        # Only run full pip install if requirements.txt actually changed — pip
+        # is slow on a 1GB instance and runs every day even when no deps moved.
         if [ "$PREV_SHA" != "$NEW_SHA" ] && [ -f "requirements.txt" ] && [ -f ".venv/bin/pip" ]; then
             if git diff "$PREV_SHA" "$NEW_SHA" -- requirements.txt | grep -q "^[+-]"; then
                 log "GATE $repo — requirements.txt changed, running pip install"
@@ -61,6 +61,18 @@ for repo in "${REPOS[@]}"; do
                     PULL_FAILURES=$((PULL_FAILURES + 1))
                     FAILED_REPOS+=("$repo (pip)")
                 fi
+            fi
+        fi
+
+        # Always refresh alpha-engine-lib (pinned @main ecosystem-wide).
+        # The conditional block above skips when requirements.txt is unchanged,
+        # which would leave lib frozen at whatever was installed last —
+        # defeating the @main pin. Cheap: single package, wheel cached, ~1-2s.
+        if [ -f ".venv/bin/pip" ] && [ -f "requirements.txt" ] && grep -q "alpha-engine-lib" requirements.txt 2>/dev/null; then
+            if .venv/bin/pip install --quiet --upgrade alpha-engine-lib >> "$LOG" 2>&1; then
+                log "OK   $repo — alpha-engine-lib refreshed from @main"
+            else
+                log "WARN $repo — alpha-engine-lib upgrade failed (non-fatal; previous version retained)"
             fi
         fi
 
