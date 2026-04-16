@@ -27,7 +27,6 @@ log "=== boot-pull started ==="
 # (alpha-engine-config first so other repos can reference it on pull).
 REPOS=(
     /home/ec2-user/alpha-engine-config
-    /home/ec2-user/alpha-engine-data
     /home/ec2-user/alpha-engine-research
     /home/ec2-user/alpha-engine-dashboard
     /home/ec2-user/flow-doctor
