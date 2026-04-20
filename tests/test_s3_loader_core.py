@@ -44,7 +44,7 @@ class TestPathBuilders:
 
     def test_order_book_key(self):
         mod = _import_s3_loader()
-        assert mod._order_book_key("2026-04-08") == "signals/2026-04-08/order_book_summary.json"
+        assert mod._order_book_key("2026-04-08") == "order_books/2026-04-08/summary.json"
 
 
 class TestS3GetObject:

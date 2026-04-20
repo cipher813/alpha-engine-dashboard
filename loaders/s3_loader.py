@@ -352,7 +352,7 @@ def _predictions_key(date_str: str | None = None) -> str:
 
 
 def _order_book_key(date_str: str) -> str:
-    return f"signals/{date_str}/order_book_summary.json"
+    return f"order_books/{date_str}/summary.json"
 
 
 # ---------------------------------------------------------------------------
