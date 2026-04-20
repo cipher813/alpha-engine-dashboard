@@ -139,7 +139,7 @@ def load_predictions_json() -> dict | None:
 @st.cache_data(ttl=_ttl("trades"))
 def load_order_book_summary(date_str: str) -> dict | None:
     """Load order_book_summary.json for a given date."""
-    return download_s3_json(_research_bucket(), f"signals/{date_str}/order_book_summary.json")
+    return download_s3_json(_research_bucket(), f"order_books/{date_str}/summary.json")
 
 
 @st.cache_data(ttl=_ttl("trades"))
