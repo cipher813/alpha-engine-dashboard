@@ -91,7 +91,7 @@ DAILY (Mon-Fri, Step Function)
 |------|---------|-----------|
 | `arcticdb/universe/` | 10y OHLCV for 909 tickers | Predictor training, Backtester |
 | `arcticdb/universe_slim/` | 2y OHLCV slices | Predictor inference, Executor |
-| `predictor/daily_closes/{date}.parquet` | Daily OHLCV archive | Predictor inference |
+| `staging/daily_closes/{date}.parquet` | Daily OHLCV intermediate (7-day lifecycle); canonical home is ArcticDB universe | Daily ingest into ArcticDB |
 | `predictor/feature_store/{date}/` | 54 features x 903 tickers | Predictor inference |
 | `market_data/weekly/{date}/` | Constituents, macro, alternative | Research, Predictor |
 | `research.db` (universe_returns table) | Forward returns for all tickers | Backtester |

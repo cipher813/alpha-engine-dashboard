@@ -263,7 +263,8 @@ with tab_modules:
         eod_df = load_eod_pnl()
         n_signals_dates = len(list_s3_prefixes(_research_bucket(), "signals/"))
         n_predictions_dates = len(list_s3_prefixes(_research_bucket(), "predictor/predictions/"))
-        n_daily_closes = _count_s3_objects(_research_bucket(), "predictor/daily_closes/")
+        # staging/ prefix per 2026-04-29 migration (alpha-engine-data PR #112)
+        n_daily_closes = _count_s3_objects(_research_bucket(), "staging/daily_closes/")
         n_price_cache = _count_s3_objects(_research_bucket(), "predictor/price_cache_slim/")
 
     n_trades = len(trades_df) if trades_df is not None else 0
