@@ -153,12 +153,14 @@ def check_all(bucket: str = DEFAULT_BUCKET) -> list[dict]:
         "status": "ok" if age is not None and age <= threshold else "stale" if age is not None else "missing",
     })
 
-    # 7. Daily closes
+    # 7. Daily closes — staging/ prefix per 2026-04-29 migration
+    # (alpha-engine-data PR #112). The parquet is intermediate state with
+    # 7-day S3 lifecycle; canonical home is ArcticDB universe library.
     today_str_dc = date.today().isoformat()
-    modified, age = _last_modified_age(s3, bucket, f"predictor/daily_closes/{today_str_dc}.parquet")
+    modified, age = _last_modified_age(s3, bucket, f"staging/daily_closes/{today_str_dc}.parquet")
     if modified is None:
         yesterday_dc = (date.today() - timedelta(days=1)).isoformat()
-        modified, age = _last_modified_age(s3, bucket, f"predictor/daily_closes/{yesterday_dc}.parquet")
+        modified, age = _last_modified_age(s3, bucket, f"staging/daily_closes/{yesterday_dc}.parquet")
     threshold = THRESHOLDS["daily_closes"]
     results.append({
         "check": "daily_closes",
