@@ -19,6 +19,26 @@ import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 
+# Structured logging + flow-doctor singleton via alpha-engine-lib (shared
+# pattern across all 5 entrypoints; see executor/main.py for reference).
+# When FLOW_DOCTOR_ENABLED=1, attaches a FlowDoctorHandler at ERROR so
+# every logger.error() call routes through flow-doctor's dispatch
+# (email + GitHub issue) without explicit fd.report() plumbing.
+# Module-top so import-time errors are also captured. Replaces the
+# previous logging.basicConfig() call inside main().
+#
+# exclude_patterns starts empty by deliberate convention.
+from alpha_engine_lib.logging import setup_logging
+_FLOW_DOCTOR_EXCLUDE_PATTERNS: list[str] = []
+_FLOW_DOCTOR_YAML = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "flow-doctor.yaml"
+)
+setup_logging(
+    "dashboard-health-checker",
+    flow_doctor_yaml=_FLOW_DOCTOR_YAML,
+    exclude_patterns=_FLOW_DOCTOR_EXCLUDE_PATTERNS,
+)
+
 import boto3
 
 logger = logging.getLogger(__name__)
@@ -262,7 +282,9 @@ def main():
     parser.add_argument("--alert", action="store_true", help="Send SNS alert on failures")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.WARNING)
+    # setup_logging already ran at module-top (see comment near the
+    # alpha_engine_lib.logging import). Apply the standard log level.
+    logging.getLogger().setLevel(logging.WARNING)
     results = check_all(args.bucket)
 
     if args.json:
