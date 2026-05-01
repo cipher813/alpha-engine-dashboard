@@ -15,6 +15,11 @@ __pycache__/
 .venv/
 venv/
 
+# Local flow-doctor sqlite store (created by tests + local invocations of
+# setup_logging() — production stores live at /tmp/flow_doctor.db on Lambda
+# and are ephemeral; the local file here is just test scratch).
+flow_doctor.db
+
 # Hugo blog build output (source is tracked, built files are not)
 blog/public/
 blog/resources/

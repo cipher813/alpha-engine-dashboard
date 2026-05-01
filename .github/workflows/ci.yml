@@ -17,6 +17,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      # alpha-engine-lib is a private repo. Without this git-config
+      # insteadOf rewrite, `pip install -r requirements.txt` hits an
+      # unauthenticated `git clone https://github.com/cipher813/alpha-engine-lib`
+      # which fails with "could not read Username for 'https://github.com'".
+      # Mirrors the data / research / predictor / backtester ci.yml pattern.
+      # ALPHA_ENGINE_LIB_TOKEN is a fine-grained PAT with Contents: read on
+      # cipher813/alpha-engine-lib stored as a repository secret.
+      - name: Configure git auth for private alpha-engine-lib
+        env:
+          ALPHA_ENGINE_LIB_TOKEN: ${{ secrets.ALPHA_ENGINE_LIB_TOKEN }}
+        run: |
+          if [ -z "$ALPHA_ENGINE_LIB_TOKEN" ]; then
+            echo "::error::ALPHA_ENGINE_LIB_TOKEN secret not set — required to install private alpha-engine-lib"
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${ALPHA_ENGINE_LIB_TOKEN}@github.com/cipher813/alpha-engine-lib".insteadOf "https://github.com/cipher813/alpha-engine-lib"
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
