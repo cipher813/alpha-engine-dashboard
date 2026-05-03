@@ -6,9 +6,5 @@ pyyaml>=6.0
 # alpha-engine-lib provides setup_logging used by app.py + health_checker.py
 # to attach the FlowDoctorHandler when FLOW_DOCTOR_ENABLED=1. The
 # [flow_doctor] extra pulls flow-doctor; no other extras are needed
-# (dashboard reads S3, not ArcticDB).
-# Private repo — installs require ALPHA_ENGINE_LIB_TOKEN:
-#   CI: .github/workflows/ci.yml configures a git URL insteadOf rewrite.
-#   EC2: ae-dashboard's ~/.netrc + ALPHA_ENGINE_LIB_TOKEN env (set by
-#        the boot-pull deploy script) cover the pip install path.
+# (dashboard reads S3, not ArcticDB). Public since 2026-05-03.
 alpha-engine-lib[flow_doctor] @ git+https://github.com/cipher813/alpha-engine-lib@v0.2.2
