@@ -1,0 +1,275 @@
+"""Unit tests for ``loaders.eval_loader`` (PR 4d)."""
+
+from __future__ import annotations
+
+import sys
+from datetime import date
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Stub loaders.s3_loader BEFORE importing eval_loader. The real
+# s3_loader runs load_config() at import time which fails outside of
+# a configured dashboard env. Same pattern as tests/test_db_loader.py.
+sys.modules.setdefault("streamlit", MagicMock())
+
+_s3_loader_stub = MagicMock()
+_s3_loader_stub.get_s3_client = MagicMock()
+_s3_loader_stub._fetch_s3_json = MagicMock()
+_s3_loader_stub._research_bucket = lambda: "test-bucket"
+sys.modules["loaders.s3_loader"] = _s3_loader_stub
+
+from loaders.eval_loader import (  # noqa: E402
+    _explode_eval_artifact,
+    load_eval_artifacts,
+)
+
+
+def _eval_artifact_payload(
+    *,
+    judged_agent_id: str = "ic_cio",
+    judge_model: str = "claude-haiku-4-5",
+    rubric_version: str = "1.0.0",
+    run_id: str = "2026-05-09",
+    scores: list[tuple[str, int]] | None = None,
+) -> dict:
+    scores = scores or [
+        ("decision_coherence", 4),
+        ("rationale_quality", 3),
+    ]
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "timestamp": "2026-05-09T22:30:00.000Z",
+        "judged_agent_id": judged_agent_id,
+        "judged_artifact_s3_key": f"decision_artifacts/2026/05/09/{judged_agent_id}/{run_id}.json",
+        "rubric_id": f"eval_rubric_{judged_agent_id.split(':')[0]}",
+        "rubric_version": rubric_version,
+        "judge_model": judge_model,
+        "dimension_scores": [
+            {"dimension": d, "score": s, "reasoning": f"r-{d}"}
+            for d, s in scores
+        ],
+        "overall_reasoning": "ok",
+    }
+
+
+# ── _explode_eval_artifact ────────────────────────────────────────────────
+
+
+class TestExplodeEvalArtifact:
+    def test_one_row_per_dimension(self):
+        artifact = _eval_artifact_payload(scores=[
+            ("d1", 4), ("d2", 5), ("d3", 3),
+        ])
+        rows = _explode_eval_artifact(artifact, "2026-05-09")
+        assert len(rows) == 3
+        assert [r["criterion"] for r in rows] == ["d1", "d2", "d3"]
+        assert [r["score"] for r in rows] == [4, 5, 3]
+        assert all(r["judged_agent_id"] == "ic_cio" for r in rows)
+        assert all(r["eval_date"] == "2026-05-09" for r in rows)
+
+    def test_metadata_propagated_to_each_row(self):
+        artifact = _eval_artifact_payload(
+            judged_agent_id="sector_quant:technology",
+            judge_model="claude-sonnet-4-6",
+            rubric_version="1.2.0",
+            run_id="run-test-1",
+        )
+        rows = _explode_eval_artifact(artifact, "2026-05-09")
+        for row in rows:
+            assert row["judge_model"] == "claude-sonnet-4-6"
+            assert row["rubric_version"] == "1.2.0"
+            assert row["run_id"] == "run-test-1"
+            assert row["overall_reasoning"] == "ok"
+
+    def test_empty_dimension_scores_returns_empty(self):
+        artifact = _eval_artifact_payload()
+        artifact["dimension_scores"] = []
+        rows = _explode_eval_artifact(artifact, "2026-05-09")
+        assert rows == []
+
+    def test_missing_optional_fields_default_safely(self):
+        # Defensive: an artifact that's missing optional metadata
+        # shouldn't raise — it's better to surface partial data on
+        # the dashboard than to crash the page.
+        rows = _explode_eval_artifact({
+            "dimension_scores": [{"dimension": "d1", "score": 4, "reasoning": "r"}]
+        }, "2026-05-09")
+        assert len(rows) == 1
+        assert rows[0]["judge_model"] == ""
+        assert rows[0]["rubric_version"] == ""
+
+
+# ── load_eval_artifacts ───────────────────────────────────────────────────
+
+
+@pytest.fixture
+def mock_s3():
+    """Stub the S3 client paginator to return controllable list_objects_v2
+    + CommonPrefixes responses, plus _fetch_s3_json for artifact downloads."""
+    paginator = MagicMock()
+    client = MagicMock()
+    client.get_paginator.return_value = paginator
+    _s3_loader_stub.get_s3_client.return_value = client
+    yield {
+        "client": client,
+        "paginator": paginator,
+        "fetch_json": _s3_loader_stub._fetch_s3_json,
+    }
+    # Reset between tests so a stub from one test doesn't leak.
+    _s3_loader_stub._fetch_s3_json.reset_mock(side_effect=True)
+    paginator.paginate.reset_mock(side_effect=True)
+
+
+def _setup_paginator_responses(paginator, *, dates: list[str], keys_by_date: dict[str, list[str]]):
+    """Configure paginator.paginate to return:
+       - first call (Delimiter='/') → CommonPrefixes for each date
+       - subsequent calls (per-date list_keys) → Contents for that date.
+    """
+    date_page = {
+        "CommonPrefixes": [
+            {"Prefix": f"decision_artifacts/_eval/{d}/"} for d in dates
+        ],
+    }
+    per_date_pages = {
+        d: [{"Contents": [{"Key": k} for k in keys_by_date[d]]}]
+        for d in dates
+    }
+
+    call_count = {"n": 0}
+
+    def fake_paginate(**kwargs):
+        delimiter = kwargs.get("Delimiter")
+        if delimiter == "/":
+            return iter([date_page])
+        prefix = kwargs.get("Prefix", "")
+        # Extract date from the prefix
+        date_str = prefix.replace("decision_artifacts/_eval/", "").rstrip("/")
+        return iter(per_date_pages.get(date_str, [{"Contents": []}]))
+
+    paginator.paginate.side_effect = fake_paginate
+
+
+class TestLoadEvalArtifacts:
+    def test_empty_corpus_returns_empty_dataframe_with_schema(self, mock_s3):
+        _setup_paginator_responses(mock_s3["paginator"], dates=[], keys_by_date={})
+        df = load_eval_artifacts(
+            start_date=date(2026, 5, 1),
+            end_date=date(2026, 5, 9),
+            bucket="test-bucket",
+        )
+        assert df.empty
+        # Must still expose the expected columns so the page can build
+        # plot specs without conditionals on schema.
+        assert set(df.columns) >= {
+            "eval_date", "judged_agent_id", "criterion", "score",
+            "judge_model", "rubric_version",
+        }
+
+    def test_happy_path_one_artifact_one_date(self, mock_s3):
+        date_str = "2026-05-09"
+        key = f"decision_artifacts/_eval/{date_str}/ic_cio/r1.claude-haiku-4-5.json"
+        _setup_paginator_responses(
+            mock_s3["paginator"],
+            dates=[date_str],
+            keys_by_date={date_str: [key]},
+        )
+        mock_s3["fetch_json"].side_effect = lambda b, k: _eval_artifact_payload(
+            scores=[("d1", 4), ("d2", 3)],
+        )
+
+        df = load_eval_artifacts(
+            start_date=date(2026, 5, 9),
+            end_date=date(2026, 5, 9),
+            bucket="test-bucket",
+        )
+        assert len(df) == 2
+        assert set(df["criterion"]) == {"d1", "d2"}
+        # Sorted by criterion ascending → d1(4) before d2(3).
+        assert df["criterion"].tolist() == ["d1", "d2"]
+        assert df["score"].tolist() == [4, 3]
+
+    def test_filters_dates_outside_window(self, mock_s3):
+        in_window = "2026-05-09"
+        too_early = "2026-04-01"
+        too_late = "2026-06-15"
+        keys = {
+            in_window: [f"decision_artifacts/_eval/{in_window}/ic_cio/r1.claude-haiku-4-5.json"],
+            too_early: [f"decision_artifacts/_eval/{too_early}/ic_cio/r0.claude-haiku-4-5.json"],
+            too_late: [f"decision_artifacts/_eval/{too_late}/ic_cio/r2.claude-haiku-4-5.json"],
+        }
+        _setup_paginator_responses(
+            mock_s3["paginator"],
+            dates=[too_early, in_window, too_late],
+            keys_by_date=keys,
+        )
+        mock_s3["fetch_json"].side_effect = lambda b, k: _eval_artifact_payload()
+
+        df = load_eval_artifacts(
+            start_date=date(2026, 5, 1),
+            end_date=date(2026, 5, 31),
+            bucket="test-bucket",
+        )
+        # Only the in-window date contributes rows.
+        assert df["eval_date"].dt.strftime("%Y-%m-%d").unique().tolist() == [in_window]
+
+    def test_two_judge_models_for_same_artifact_keep_separate(self, mock_s3):
+        """When eval-judge writes both Haiku and Sonnet for the same
+        artifact, both files surface in the loader's output as
+        separate rows distinguished by judge_model."""
+        date_str = "2026-05-09"
+        haiku_key = f"decision_artifacts/_eval/{date_str}/ic_cio/r1.claude-haiku-4-5.json"
+        sonnet_key = f"decision_artifacts/_eval/{date_str}/ic_cio/r1.claude-sonnet-4-6.json"
+        _setup_paginator_responses(
+            mock_s3["paginator"],
+            dates=[date_str],
+            keys_by_date={date_str: [haiku_key, sonnet_key]},
+        )
+
+        def fetch(_b, key):
+            if "haiku" in key:
+                return _eval_artifact_payload(judge_model="claude-haiku-4-5")
+            return _eval_artifact_payload(judge_model="claude-sonnet-4-6")
+
+        mock_s3["fetch_json"].side_effect = fetch
+
+        df = load_eval_artifacts(
+            start_date=date(2026, 5, 9),
+            end_date=date(2026, 5, 9),
+            bucket="test-bucket",
+        )
+        assert set(df["judge_model"]) == {"claude-haiku-4-5", "claude-sonnet-4-6"}
+        # Same agent_id, same criteria — 2 dimensions × 2 judges = 4 rows
+        assert len(df) == 4
+
+    def test_skips_artifacts_that_failed_to_fetch(self, mock_s3):
+        """If _fetch_s3_json returns None (404 or transient), skip
+        that artifact rather than crashing the whole page."""
+        date_str = "2026-05-09"
+        good_key = f"decision_artifacts/_eval/{date_str}/ic_cio/r1.claude-haiku-4-5.json"
+        bad_key = f"decision_artifacts/_eval/{date_str}/ic_cio/r2.claude-haiku-4-5.json"
+        _setup_paginator_responses(
+            mock_s3["paginator"],
+            dates=[date_str],
+            keys_by_date={date_str: [good_key, bad_key]},
+        )
+
+        def fetch(_b, key):
+            if "r2" in key:
+                return None
+            return _eval_artifact_payload(scores=[("d1", 4)])
+
+        mock_s3["fetch_json"].side_effect = fetch
+
+        df = load_eval_artifacts(
+            start_date=date(2026, 5, 9),
+            end_date=date(2026, 5, 9),
+            bucket="test-bucket",
+        )
+        assert len(df) == 1
+        assert df.iloc[0]["run_id"] == "2026-05-09"
