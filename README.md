@@ -18,7 +18,7 @@ Read-only Streamlit dashboard for monitoring the full Alpha Engine system. Power
 - **Portfolio + alpha** — NAV vs SPY, daily / cumulative alpha, drawdown, position-level P&L attribution
 - **Signals + research** — daily signal table, rolling signal accuracy at 10d / 30d, per-ticker thesis timeline
 - **Predictor monitoring** — meta-ensemble predictions (UP / FLAT / DOWN), L2 IC trend, per-L1 component IC
-- **System health** — last-run timestamps for Saturday + weekday + EOD pipelines, deploy cadence, test surface trend
+- **System health** — last-run timestamps for the three Step Functions (weekly, weekday, EOD), deploy cadence, test surface trend
 - **Execution evaluation** — fill quality, entry-trigger distribution, sizing decisions, intraday slippage
 - **LLM-as-judge eval quality** — rubric scores over time per agent
 - **Public + private split** — `public/` directory powers the marketing-facing nousergon.ai; the rest of the repo serves the private interview-demo dashboard at dashboard.nousergon.ai
