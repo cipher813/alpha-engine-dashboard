@@ -17,8 +17,9 @@ learning via backtest, and dashboard monitoring. This documentation covers how e
 </div>
 
 **Weekly cycle (Saturdays):** Data collects prices into ArcticDB, Research scans the market,
-the predictor retrains its meta-model (4 GBMs + ridge), and the backtester evaluates
-system performance (component grades, P/R/F1) and optimizes parameters.
+the predictor retrains its stacked meta-ensemble (Layer-1 LightGBM momentum + LightGBM
+volatility + research-score calibrator feeding a Layer-2 Ridge meta-learner), and the
+backtester evaluates system performance (component grades, P/R/F1) and optimizes parameters.
 
 **Daily cycle (weekdays):** Data refreshes daily closes and features, the predictor
 infers 5-day alpha predictions, and the executor sizes positions, manages risk,
