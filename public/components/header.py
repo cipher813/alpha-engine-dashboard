@@ -83,6 +83,23 @@ def render_footer():
     st.markdown(
         """
         <div style="text-align: center; padding: 8px 0 20px 0;">
+            <p style="color: #aaa; font-size: 13px; margin-bottom: 6px;">
+                <a href="https://github.com/cipher813/alpha-engine-docs#readme"
+                   target="_blank"
+                   style="color: #1a73e8; text-decoration: none; margin: 0 12px;">
+                    Architecture
+                </a>
+                <a href="https://github.com/cipher813"
+                   target="_blank"
+                   style="color: #1a73e8; text-decoration: none; margin: 0 12px;">
+                    GitHub
+                </a>
+                <a href="/blog"
+                   target="_self"
+                   style="color: #1a73e8; text-decoration: none; margin: 0 12px;">
+                    Blog
+                </a>
+            </p>
             <p style="color: #666; font-size: 12px;">
                 Paper trading account &mdash; not financial advice
             </p>

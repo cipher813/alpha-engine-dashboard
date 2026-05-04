@@ -19,6 +19,7 @@ import streamlit as st
 import yaml
 
 from components.header import render_header, render_footer
+from components.landing_intro import render_landing_intro
 from components.phase_indicator import render_phase_indicator, render_phase_caption
 from components.styles import inject_base_css, inject_metric_css
 from components.report_card import render_report_card
@@ -85,7 +86,15 @@ inject_metric_css()
 render_header(current_page="Home")
 
 # ---------------------------------------------------------------------------
-# Phase Indicator (hero framing — above the fold)
+# Landing intro — hero one-liner, mission paragraph, four pillars
+# ---------------------------------------------------------------------------
+
+render_landing_intro()
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Phase Indicator — Phase 2 framing connecting narrative to live receipts
 # ---------------------------------------------------------------------------
 
 render_phase_indicator(current_phase=_CURRENT_PHASE)
