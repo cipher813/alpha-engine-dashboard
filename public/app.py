@@ -3,11 +3,11 @@ Nous Ergon — Public Portfolio Page
 https://nousergon.ai
 
 Layout (top to bottom):
-  1. Performance — KPI metrics + NAV vs SPY chart + alpha stats
-  2. Current Holdings — positions with value
-  3. Order Book / Trades — market-aware view
-  4. Daily Decisions — predictor vetoes + risk guard blocks
-  5. Research Population — weekly picks
+  1. Landing intro — hero + mission + four pillars
+  2. Phase indicator + uptime KPI + system report card
+  3. Performance — KPI metrics + NAV vs SPY chart + alpha stats
+  4. Current Holdings — positions with value
+  5. Recent Trades — most-recent-session fills
 """
 
 import json
@@ -27,10 +27,6 @@ from components.uptime_kpi import render_uptime_kpi
 from loaders.s3_loader import (
     load_eod_pnl,
     load_latest_grading,
-    load_order_book_summary,
-    load_population_json,
-    load_predictions_json,
-    load_predictor_metrics,
     load_trades_full,
     load_uptime_history,
 )
@@ -106,13 +102,8 @@ st.divider()
 # Load data
 # ---------------------------------------------------------------------------
 
-today = date.today().isoformat()
 eod = load_eod_pnl()
 trades_df = load_trades_full()
-population_data = load_population_json()
-predictions_data = load_predictions_json()
-predictor_metrics = load_predictor_metrics()
-order_book_summary = load_order_book_summary(today)
 uptime_history = load_uptime_history(max_sessions=_UPTIME_WINDOW_SESSIONS)
 grading = load_latest_grading()
 
@@ -356,115 +347,6 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
                     width="stretch", hide_index=True,
                 )
                 st.divider()
-
-# ===========================================================================
-# Section 4: Research Population + Pipeline Decisions (combined table)
-# ===========================================================================
-
-st.markdown("### Investment Universe")
-if population_data and population_data.get("population"):
-    _pop_date = population_data.get("date", "unknown")
-    st.caption(f"Research picks as of {_pop_date}")
-    pop = population_data["population"]
-    pop_date = population_data.get("date", "unknown")
-    regime = population_data.get("market_regime", "unknown")
-
-    # Last refreshed: most recent of population, predictor, or risk guard
-    last_refreshed = pop_date
-    _last_run = (predictor_metrics or {}).get("last_run_utc", "")[:10]
-    if _last_run and _last_run > last_refreshed:
-        last_refreshed = _last_run
-    if order_book_summary:
-        _ob_date = order_book_summary.get("date", "")
-        if _ob_date and _ob_date > last_refreshed:
-            last_refreshed = _ob_date
-
-    regime_emoji = {"bull": "🐂", "bear": "🐻", "neutral": "➡️", "caution": "⚠️"}.get(
-        str(regime).lower(), "📊"
-    )
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Market Regime", f"{regime_emoji} {str(regime).title()}")
-    with col2:
-        st.metric("Universe Size", str(len(pop)))
-    with col3:
-        st.metric("Last Refreshed", last_refreshed)
-
-    # Build combined table: population + predictor veto + risk guard status
-    pop_df = pd.DataFrame(pop)
-
-    # Title-case conviction
-    if "conviction" in pop_df.columns:
-        pop_df["conviction"] = pop_df["conviction"].apply(
-            lambda x: str(x).title() if pd.notna(x) else "—"
-        )
-
-    # Add predictor inference column
-    if predictions_data:
-        def _veto_label(ticker):
-            pred = predictions_data.get(ticker, {})
-            if pred.get("gbm_veto"):
-                direction = pred.get("predicted_direction", "Down")
-                return f"Vetoed: {direction.title()}"
-            return "—"
-        pop_df["Predictor Inference"] = pop_df["ticker"].apply(_veto_label)
-    else:
-        pop_df["Predictor Inference"] = "—"
-
-    # Add risk guard column
-    if order_book_summary:
-        approved_tickers = {a["ticker"] for a in order_book_summary.get("entries_approved", [])}
-        blocked_map = {b["ticker"]: b["reason"] for b in order_book_summary.get("entries_blocked", [])}
-
-        def _risk_guard_label(ticker):
-            if ticker in approved_tickers:
-                return "Approved"
-            if ticker in blocked_map:
-                reason = blocked_map[ticker]
-                # Clean up technical reason strings for display
-                reason = reason.replace("Conviction '", "").replace("' not in allowed set", "")
-                reason = reason.replace("('rising', 'stable')", "").strip()
-                return f"Blocked: {reason.title()}" if reason else "Blocked"
-            return "—"
-        pop_df["Risk Guard"] = pop_df["ticker"].apply(_risk_guard_label)
-    else:
-        pop_df["Risk Guard"] = "—"
-
-    # Add order book column
-    if order_book_summary:
-        ob_entries = {a["ticker"] for a in order_book_summary.get("entries_approved", [])}
-        ob_exits = {e["ticker"] for e in order_book_summary.get("exits", [])}
-        ob_covers = {c["ticker"] for c in order_book_summary.get("covers", [])}
-
-        def _order_book_label(ticker):
-            if ticker in ob_entries:
-                return "Enter"
-            if ticker in ob_exits:
-                return "Exit"
-            if ticker in ob_covers:
-                return "Cover"
-            return "—"
-        pop_df["Order Book"] = pop_df["ticker"].apply(_order_book_label)
-    else:
-        pop_df["Order Book"] = "—"
-
-    # Rename columns for display
-    col_rename = {
-        "ticker": "Ticker",
-        "sector": "Sector",
-        "conviction": "Research Conviction",
-        "entry_date": "Entry Date",
-    }
-    display_cols = [c for c in [
-        "ticker", "sector", "conviction", "entry_date", "Predictor Inference", "Risk Guard", "Order Book",
-    ] if c in pop_df.columns]
-
-    if display_cols:
-        display_df = pop_df[display_cols].sort_values("sector").rename(columns=col_rename)
-        st.dataframe(display_df, width="stretch", hide_index=True)
-else:
-    st.info("Population data not available. Research pipeline may not have run yet.")
 
 # ---------------------------------------------------------------------------
 # Footer
