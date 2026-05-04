@@ -314,14 +314,38 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
             recent_trades = trades_copy[trades_copy["date"] == recent_dt]
             if not recent_trades.empty:
                 st.markdown("### Recent Trades")
-                display_cols = ["ticker"]
-                for col in ["action", "signal"]:
-                    if col in recent_trades.columns:
-                        display_cols.append(col)
-                        break
                 st.caption(f"As of {recent_date}")
+
+                rt = recent_trades.copy()
+                # Shares: prefer filled_shares (intraday daemon writes the
+                # actual fill quantity); fall back to ordered `shares` for
+                # rows still in flight.
+                shares_num = pd.to_numeric(
+                    rt.get("filled_shares"), errors="coerce"
+                ).fillna(pd.to_numeric(rt.get("shares"), errors="coerce"))
+                # Value: filled_shares × fill_price, falling back to
+                # shares × price_at_order pre-fill.
+                fill_price = pd.to_numeric(rt.get("fill_price"), errors="coerce")
+                order_price = pd.to_numeric(rt.get("price_at_order"), errors="coerce")
+                price_used = fill_price.fillna(order_price)
+                value_num = shares_num * price_used
+
+                display = pd.DataFrame({"Ticker": rt["ticker"].values})
+                action_col = next(
+                    (c for c in ("action", "signal") if c in rt.columns), None
+                )
+                if action_col:
+                    display["Action"] = rt[action_col].values
+                display["Shares"] = [
+                    f"{int(round(x))}" if pd.notna(x) else "—"
+                    for x in shares_num
+                ]
+                display["Value"] = [
+                    f"${v:,.0f}" if pd.notna(v) else "—" for v in value_num
+                ]
+
                 st.dataframe(
-                    recent_trades[display_cols].reset_index(drop=True),
+                    display.reset_index(drop=True),
                     width="stretch", hide_index=True,
                 )
                 st.divider()
