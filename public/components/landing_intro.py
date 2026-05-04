@@ -17,7 +17,7 @@ _HERO_ONELINER = (
 
 _MISSION = (
     "Research agents scan the US large- and mid-cap universe each week. "
-    "A machine-learning overlay layers a quantitative read on top. "
+    "A machine-learning ensemble predicts short-term moves. "
     "A risk-gated executor places trades. A weekly backtester evaluates "
     "the system's own outputs and computes parameter updates that flow "
     "back into the next run — closing a feedback loop the system is being "
@@ -28,7 +28,7 @@ _PROVING_GROUND = (
     "Equities are the proving ground: decisions, outcomes, and P&amp;L are "
     "unambiguous and continuously verifiable. The orchestration, "
     "measurement, and learning loops generalize to any domain where "
-    "multi-agent collaboration and durable instrumentation matter."
+    "multi-agent collaboration and end-to-end measurement matter."
 )
 
 _PILLARS = [
