@@ -330,7 +330,14 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
                 price_used = fill_price.fillna(order_price)
                 value_num = shares_num * price_used
 
-                display = pd.DataFrame({"Ticker": rt["ticker"].values})
+                # Date column: show the trade date inline so the table is
+                # self-contained even when the caption scrolls out of view.
+                date_col = pd.to_datetime(rt["date"]).dt.strftime("%Y-%m-%d")
+
+                display = pd.DataFrame({
+                    "Date": date_col.values,
+                    "Ticker": rt["ticker"].values,
+                })
                 action_col = next(
                     (c for c in ("action", "signal") if c in rt.columns), None
                 )
