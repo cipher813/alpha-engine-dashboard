@@ -42,6 +42,7 @@ from loaders.s3_loader import (
     _research_bucket,
     _s3_get_object,
     get_s3_client,
+    load_daily_data_health,
 )
 
 st.set_page_config(
@@ -192,6 +193,60 @@ if age_days > 2:
 elif age_days == 0:
     st.success("Feature store is up to date (today).")
 
+# ─── Latest ingestion attribution (runtime truth) ───────────────────────────
+st.subheader("Latest ingestion attribution")
+st.caption(
+    "What actually got fetched on the most recent successful daily-data run "
+    "— sourced from `s3://alpha-engine-research/health/daily_data.json`. "
+    "Two passes write here: the **EOD yfinance** pass at ~1:05 PT same-day, "
+    "then the **morning polygon** pass at ~5:30 AM PT next trading day "
+    "(overwrites the close + adds VWAP). This snapshot reflects whichever "
+    "pass ran last."
+)
+
+dd_health = load_daily_data_health() or {}
+dd_summary = dd_health.get("summary") or {}
+if dd_summary:
+    ic1, ic2, ic3, ic4, ic5 = st.columns(5)
+    ic1.metric("Tickers captured", f"{int(dd_summary.get('tickers_captured', 0)):,}")
+    polygon_n = int(dd_summary.get("polygon", 0) or 0)
+    yfinance_n = int(dd_summary.get("yfinance", 0) or 0)
+    fred_n = int(dd_summary.get("fred", 0) or 0)
+    ic2.metric("Polygon", f"{polygon_n:,}")
+    ic3.metric("yfinance", f"{yfinance_n:,}")
+    ic4.metric("FRED", f"{fred_n:,}")
+
+    last_success = dd_health.get("last_success", "")
+    duration = dd_health.get("duration_seconds")
+    status = dd_health.get("status", "?")
+    ic5.metric("Run status", status)
+
+    if last_success:
+        st.caption(
+            f"Last successful write: **{last_success}** "
+            f"{'(' + str(duration) + 's)' if duration else ''}"
+        )
+
+    # Determine which pass this snapshot reflects
+    if polygon_n > yfinance_n:
+        st.success(
+            "**Polygon-dominant** — most recent write was the morning polygon "
+            "overwrite (canonical close + VWAP)."
+        )
+    elif yfinance_n > polygon_n and yfinance_n > 0:
+        st.info(
+            "**yfinance-dominant** — most recent write was the EOD pass. "
+            "Polygon morning overwrite expected ~5:30 AM PT next trading day."
+        )
+
+    warnings_list = dd_health.get("warnings") or []
+    if warnings_list:
+        with st.expander(f"Warnings ({len(warnings_list)})"):
+            for w in warnings_list:
+                st.warning(w)
+else:
+    st.caption("`health/daily_data.json` not yet present.")
+
 # ─── Coverage ───────────────────────────────────────────────────────────────
 st.subheader("Coverage")
 
@@ -247,6 +302,61 @@ st.caption(
 
 # ─── Feature Catalog ────────────────────────────────────────────────────────
 st.subheader("Feature Catalog")
+st.caption(
+    "Per-feature catalog. **Source column is resolved from runtime ingestion** — "
+    "for technical features it flips polygon ↔ yfinance based on which "
+    "daily-data pass ran most recently (see *Latest ingestion attribution* "
+    "above). Macro / alternative / fundamental sources reflect feature-level "
+    "domain knowledge of which raw input each feature consumes."
+)
+
+# Group-level canonical provider descriptions (stable; safe to show)
+_group_provenance = {
+    "Technical": "polygon canonical (morning T+1, with VWAP) + yfinance EOD fallback",
+    "Interaction": "computed from technical + macro features at write time",
+    "Macro": "FRED canonical (treasuries, VIX) + yfinance for index ETFs (GLD, USO, VIX3M)",
+    "Alternative": "FMP for analyst/revisions/earnings; yfinance for options chains (OI, IV)",
+    "Fundamental": "FMP quarterly financials",
+}
+
+# Runtime source resolution: technical features flip with the latest pass.
+# polygon_n / yfinance_n / fred_n come from the dd_summary block above.
+_polygon_n = int((dd_health.get("summary") or {}).get("polygon", 0) or 0)
+_yfinance_n = int((dd_health.get("summary") or {}).get("yfinance", 0) or 0)
+_technical_runtime_source = "polygon" if _polygon_n >= _yfinance_n and _polygon_n > 0 else "yfinance"
+
+# Macro features split by raw input (FRED vs yfinance ETF)
+_macro_fred_features = {"vix_level", "yield_10y", "yield_curve_slope"}
+_macro_yfinance_features = {"gold_mom_5d", "oil_mom_5d", "vix_term_slope"}
+# Alternative split by raw input (FMP analyst/earnings vs yfinance options)
+_alt_fmp_features = {"earnings_surprise_pct", "days_since_earnings", "eps_revision_4w", "revision_streak"}
+_alt_yfinance_features = {"put_call_ratio", "iv_rank", "iv_vs_rv"}
+
+
+def _resolve_runtime_source(group: str, feature: str) -> str:
+    """Per-feature source, resolved from runtime ingestion + domain knowledge."""
+    if group == "Technical":
+        return _technical_runtime_source
+    if group == "Interaction":
+        return "computed"
+    if group == "Macro":
+        if feature in _macro_fred_features:
+            return "FRED"
+        if feature in _macro_yfinance_features:
+            return "yfinance"
+        if feature == "xsect_dispersion":
+            return "computed"
+        return "?"
+    if group == "Alternative":
+        if feature in _alt_fmp_features:
+            return "FMP"
+        if feature in _alt_yfinance_features:
+            return "yfinance"
+        return "?"
+    if group == "Fundamental":
+        return "FMP"
+    return "?"
+
 
 registry = _load_registry(bucket)
 _registry_lookup: dict[str, dict] = {}
@@ -269,7 +379,7 @@ for group_name, df in groups.items():
                 "Group": group_name,
                 "Feature": col,
                 "Description": reg.get("description", ""),
-                "Source": reg.get("source", ""),
+                "Source": _resolve_runtime_source(group_name, col),
                 "Refresh": reg.get("refresh", ""),
                 "Mean": round(float(series.mean()), 4) if pd.api.types.is_numeric_dtype(series) else None,
                 "Std": round(float(series.std()), 4) if pd.api.types.is_numeric_dtype(series) else None,
@@ -284,7 +394,10 @@ if catalog_rows:
         group_slice = catalog_df[catalog_df["Group"] == group_name]
         if group_slice.empty:
             continue
+        provenance = _group_provenance.get(group_name, "")
         with st.expander(f"{group_name} ({len(group_slice)} features)", expanded=False):
+            if provenance:
+                st.caption(f"**Provider:** {provenance}")
             display_cols = ["Feature", "Description", "Source", "Refresh", "Mean", "Std", "Nulls"]
             st.dataframe(
                 group_slice[display_cols].reset_index(drop=True),

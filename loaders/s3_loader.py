@@ -511,6 +511,22 @@ def load_executor_params_history() -> list[dict]:
     return history
 
 
+@st.cache_data(ttl=_ttl("trades"))
+def load_daily_data_health() -> dict | None:
+    """Load `health/daily_data.json` — runtime ingestion attribution.
+
+    Producer: `alpha-engine-data` daily_data run (Saturday Data Phase 1
+    + weekday Morning Enrich). Carries per-source row counts from the
+    most recent successful write — `summary.polygon`, `.yfinance`,
+    `.fred`, `.tickers_captured`. The yfinance EOD pass writes first
+    (~1:05 PT same-day); the polygon morning pass overwrites the close
+    (~5:30 AM PT next trading day, with VWAP added). This file reflects
+    the LAST write — so the polygon/yfinance ratio depends on which
+    pass ran most recently.
+    """
+    return _fetch_s3_json(_research_bucket(), "health/daily_data.json")
+
+
 @st.cache_data(ttl=_ttl("research"))
 def load_research_params() -> dict | None:
     """Load `config/research_params.json` (CIO mode flag + reason).
