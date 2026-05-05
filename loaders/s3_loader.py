@@ -480,6 +480,49 @@ def load_scoring_weights_history() -> list[dict]:
     return history
 
 
+@st.cache_data(ttl=_ttl("research"))
+def load_executor_params_history() -> list[dict]:
+    """Return executor_params_history records sorted oldest → newest.
+
+    Reads `config/executor_params_history/{YYYY-MM-DD}.json` — written by
+    the backtester executor optimizer (`alpha-engine-backtester/optimizer/
+    executor_optimizer.py`) on each promotion. Each record carries the
+    parameter values plus best_sharpe / improvement_pct / n_combos_tested
+    metadata that explains the optimizer's choice.
+    """
+    bucket = _research_bucket()
+    prefix = f"{_CONFIG_PREFIX}/executor_params_history/"
+    client = get_s3_client()
+    try:
+        resp = client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    except Exception as e:
+        logger.warning("list executor_params_history failed: %s", e)
+        _record_s3_error(bucket, prefix, type(e).__name__, str(e))
+        return []
+
+    keys = sorted(
+        obj["Key"] for obj in resp.get("Contents", []) if obj["Key"].endswith(".json")
+    )
+    history: list[dict] = []
+    for key in keys:
+        data = _fetch_s3_json(bucket, key)
+        if isinstance(data, dict):
+            history.append(data)
+    return history
+
+
+@st.cache_data(ttl=_ttl("research"))
+def load_research_params() -> dict | None:
+    """Load `config/research_params.json` (CIO mode flag + reason).
+
+    Backtester writeback: when CIO ranking lift drops below baseline, the
+    weight optimizer flips `cio_mode` to `deterministic`; when it
+    recovers, it flips back to `rubric`. Captures one channel of the
+    autonomous feedback loop separate from executor parameters.
+    """
+    return _fetch_s3_json(_research_bucket(), f"{_CONFIG_PREFIX}/research_params.json")
+
+
 def list_backtest_dates() -> list[str]:
     """Return sorted list of available backtest dates (descending)."""
     cfg = load_config()
