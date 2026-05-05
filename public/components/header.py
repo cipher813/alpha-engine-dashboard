@@ -12,6 +12,7 @@ _NAV_LINKS = [
     ("About", "/About", True),
     ("Docs", "/Docs", True),
     ("Retros", "/Retros", True),
+    ("Metrics", "/Metrics", True),
     ("Blog", "/blog", True),
     ("GitHub", "https://github.com/cipher813/alpha-engine", False),
     ("Dashboard", "https://dashboard.nousergon.ai", False),

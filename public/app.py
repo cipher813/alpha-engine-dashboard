@@ -89,6 +89,7 @@ grading = load_latest_grading()
 # ---------------------------------------------------------------------------
 
 render_uptime_kpi(uptime_history)
+st.caption("[↓ verify uptime methodology and source on /Metrics](/Metrics#uptime)")
 
 st.divider()
 
@@ -97,6 +98,7 @@ st.divider()
 # ---------------------------------------------------------------------------
 
 render_report_card(grading)
+st.caption("[↓ verify report card methodology on /Metrics](/Metrics#report-card)")
 
 st.divider()
 
@@ -182,6 +184,11 @@ st.caption(
     "the System Report Card above; raw alpha numbers will become the "
     "headline KPI in Phase 3."
 )
+st.caption(
+    "↓ verify on /Metrics: "
+    "[NAV](/Metrics#nav) · "
+    "[cumulative alpha](/Metrics#cumulative-alpha)"
+)
 
 # Alpha stats
 st.markdown("### Alpha Performance")
@@ -199,6 +206,13 @@ col_d.metric("Trading Days", f"{total_days}")
 
 fig_alpha = make_alpha_histogram(eod)
 st.plotly_chart(fig_alpha, width="stretch")
+
+st.caption(
+    "↓ verify on /Metrics: "
+    "[win rate](/Metrics#win-rate) · "
+    "[avg up/down alpha day](/Metrics#avg-alpha-day) · "
+    "[trading days](/Metrics#trading-days)"
+)
 
 st.divider()
 
@@ -311,6 +325,7 @@ if trades_df is not None and not trades_df.empty and "date" in trades_df.columns
             display.reset_index(drop=True),
             width="stretch", hide_index=True,
         )
+        st.caption("[↓ verify total-trades source on /Metrics](/Metrics#total-trades)")
         st.divider()
 
 # ---------------------------------------------------------------------------
