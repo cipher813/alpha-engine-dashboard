@@ -187,9 +187,10 @@ st.markdown("### Learn More")
 st.markdown(
     """
     For a deeper look at the design decisions, architecture, and lessons
-    learned, check out the
-    [blog series](https://nousergon.ai/blog). For detailed module
-    documentation, visit the [docs](/Docs).
+    learned, check out the [blog series](https://nousergon.ai/blog). For
+    per-module deep dives, see the [GitHub repos](https://github.com/cipher813)
+    — each module's README covers what it does, why, and how it fits into
+    the system.
     """
 )
 
