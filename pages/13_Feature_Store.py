@@ -303,11 +303,11 @@ st.caption(
 # ─── Feature Catalog ────────────────────────────────────────────────────────
 st.subheader("Feature Catalog")
 st.caption(
-    "Per-feature catalog — description, refresh cadence, and current-snapshot "
-    "summary statistics. **Source attribution is intentionally not shown per-row** "
-    "because the registry's static `source` field can drift from runtime fact "
-    "(e.g., when a provider 403's and a fallback fills). For actual ingestion "
-    "source, see the *Latest ingestion attribution* panel above."
+    "Per-feature catalog. **Source column is resolved from runtime ingestion** — "
+    "for technical features it flips polygon ↔ yfinance based on which "
+    "daily-data pass ran most recently (see *Latest ingestion attribution* "
+    "above). Macro / alternative / fundamental sources reflect feature-level "
+    "domain knowledge of which raw input each feature consumes."
 )
 
 # Group-level canonical provider descriptions (stable; safe to show)
@@ -318,6 +318,66 @@ _group_provenance = {
     "Alternative": "FMP for analyst/revisions/earnings; yfinance for options chains (OI, IV)",
     "Fundamental": "FMP quarterly financials",
 }
+
+# Runtime source resolution: technical features flip with the latest pass.
+# Read the `source` column on the freshest daily_closes parquet (definitive
+# label written by alpha-engine-data PR #159). For older parquets that
+# pre-date the schema bump, fall back to VWAP-presence as a heuristic
+# (polygon writes VWAP, yfinance doesn't) — once a few labeled passes
+# accumulate, the fallback becomes the never-fires path.
+def _detect_technical_source() -> str:
+    for offset in range(5):
+        d = (date.today() - timedelta(days=offset)).isoformat()
+        for prefix in ("staging/daily_closes", "predictor/daily_closes"):
+            df = _load_parquet(bucket, f"{prefix}/{d}.parquet")
+            if df is None or df.empty:
+                continue
+            if "source" in df.columns:
+                # Definitive label — take the dominant value for stock rows.
+                src_counts = df["source"].dropna().value_counts()
+                if not src_counts.empty:
+                    return str(src_counts.idxmax())
+            # Fallback for pre-schema parquets
+            if "VWAP" in df.columns and df["VWAP"].notna().any():
+                return "polygon"
+            return "yfinance"
+    return "yfinance"
+
+
+_technical_runtime_source = _detect_technical_source()
+
+# Macro features split by raw input (FRED canonical vs yfinance ETF momentum)
+_macro_fred_features = {"vix_level", "yield_10y", "yield_curve_slope"}
+_macro_yfinance_features = {"gold_mom_5d", "oil_mom_5d", "vix_term_slope"}
+# Alternative split by raw input (FMP analyst/earnings vs yfinance options chains)
+_alt_fmp_features = {"earnings_surprise_pct", "days_since_earnings", "eps_revision_4w", "revision_streak"}
+_alt_yfinance_features = {"put_call_ratio", "iv_rank", "iv_vs_rv"}
+
+
+def _resolve_runtime_source(group: str, feature: str) -> str:
+    """Per-feature source, resolved from runtime ingestion + domain knowledge."""
+    if group == "Technical":
+        return _technical_runtime_source
+    if group == "Interaction":
+        return "computed"
+    if group == "Macro":
+        if feature in _macro_fred_features:
+            return "FRED"
+        if feature in _macro_yfinance_features:
+            return "yfinance"
+        if feature == "xsect_dispersion":
+            return "computed"
+        return "?"
+    if group == "Alternative":
+        if feature in _alt_fmp_features:
+            return "FMP"
+        if feature in _alt_yfinance_features:
+            return "yfinance"
+        return "?"
+    if group == "Fundamental":
+        return "FMP"
+    return "?"
+
 
 registry = _load_registry(bucket)
 _registry_lookup: dict[str, dict] = {}
@@ -340,6 +400,7 @@ for group_name, df in groups.items():
                 "Group": group_name,
                 "Feature": col,
                 "Description": reg.get("description", ""),
+                "Source": _resolve_runtime_source(group_name, col),
                 "Refresh": reg.get("refresh", ""),
                 "Mean": round(float(series.mean()), 4) if pd.api.types.is_numeric_dtype(series) else None,
                 "Std": round(float(series.std()), 4) if pd.api.types.is_numeric_dtype(series) else None,
@@ -358,7 +419,7 @@ if catalog_rows:
         with st.expander(f"{group_name} ({len(group_slice)} features)", expanded=False):
             if provenance:
                 st.caption(f"**Provider:** {provenance}")
-            display_cols = ["Feature", "Description", "Refresh", "Mean", "Std", "Nulls"]
+            display_cols = ["Feature", "Description", "Source", "Refresh", "Mean", "Std", "Nulls"]
             st.dataframe(
                 group_slice[display_cols].reset_index(drop=True),
                 use_container_width=True,
