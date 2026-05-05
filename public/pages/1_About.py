@@ -3,6 +3,11 @@ Nous Ergon — About Page
 Model overview, pipeline explanation, and links.
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 import streamlit as st
 
 from components.header import render_header, render_footer
