@@ -546,9 +546,35 @@ with tab_modules:
 # TAB 2: Feature Store (from former Feature Store page)
 # ===========================================================================
 with tab_features:
-    st.caption("Pre-computed feature snapshots for GBM inference — freshness, coverage, and drift monitoring.")
+    st.caption(
+        "Pre-computed feature snapshots for GBM inference — freshness, coverage, and drift monitoring. "
+        "**Phase-2 framing:** the catalog below is the *substrate available* for Phase 3 alpha tuning. "
+        "Production inference currently consumes a subset (~21 features per `meta_model.py:META_FEATURES` "
+        "+ each L1 GBM's feature list); expansion is gated on per-component IC discipline."
+    )
 
     bucket = _research_bucket()
+
+    # ─── Active model snapshot (manifest) ───────────────────────────────────
+    st.subheader("Active inference model snapshot")
+    _meta_manifest = _fetch_s3_json(bucket, "predictor/weights/meta/manifest.json")
+    if _meta_manifest and isinstance(_meta_manifest, dict):
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("Trained on", str(_meta_manifest.get("date", "?")))
+        mc2.metric("Version", str(_meta_manifest.get("version", "?")))
+        mc3.metric(
+            "Promoted",
+            "✓ yes" if _meta_manifest.get("promoted") else "✗ no",
+            delta_color="off",
+        )
+        meta_ic = ((_meta_manifest.get("models") or {}).get("meta_model") or {}).get("ic")
+        mc4.metric("L2 meta IC", f"{float(meta_ic):.3f}" if meta_ic is not None else "—")
+        if _meta_manifest.get("note"):
+            st.caption(_meta_manifest["note"])
+    else:
+        st.caption("`predictor/weights/meta/manifest.json` not yet present — falls back to legacy weight selection.")
+
+    st.markdown("---")
 
     with st.spinner("Finding latest feature snapshot..."):
         latest_date = _find_latest_feature_date(bucket)
@@ -745,6 +771,24 @@ with tab_features:
                 st.warning(alert)
     else:
         st.info("No drift report available. Drift detection runs after inference — check back after the next daily pipeline.")
+
+    # ─── Production vs research delta ───────────────────────────────────────
+    st.subheader("Production vs research delta")
+    st.caption(
+        "Features that exist in the store but aren't yet wired into "
+        "production inference — the *substrate-for-Phase-3* view per "
+        "the presentation revamp plan §3.4."
+    )
+    st.info(
+        "**Awaiting upstream output.** A clean delta requires the predictor "
+        "to emit `predictor/weights/meta/feature_list.json` listing the "
+        "active inference universe (META_FEATURES + each L1 GBM's feature "
+        "list). Until then, the production feature universe is documented "
+        "in code at `alpha-engine-predictor/model/meta_model.py:META_FEATURES` "
+        "(12 L2 features) plus the L1 GBM models' embedded feature lists. "
+        "Tracked as a P2 in ROADMAP — small upstream PR in "
+        "alpha-engine-predictor to emit the JSON during weekly training."
+    )
 
     # ─── Store vs Inline Usage ──────────────────────────────────────────────
     st.subheader("Store vs Inline Usage")
