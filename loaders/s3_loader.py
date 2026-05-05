@@ -381,6 +381,80 @@ def load_eod_pnl() -> pd.DataFrame | None:
     return download_s3_csv(_trades_bucket(), key)
 
 
+@st.cache_data(ttl=_ttl("trades"))
+def load_uptime_history(max_sessions: int = 20) -> list[dict]:
+    """List recent uptime/*.json files and load the most recent `max_sessions`.
+
+    Returns a list sorted oldest → newest. Each dict matches the schema
+    written by `alpha-engine/executor/uptime_tracker.py`. Non-trading-day
+    sentinel records (`{date, skipped}`) are dropped.
+    """
+    bucket = _trades_bucket()
+    client = get_s3_client()
+    try:
+        resp = client.list_objects_v2(Bucket=bucket, Prefix="uptime/")
+    except Exception as e:
+        logger.warning("list uptime/ failed: %s", e)
+        _record_s3_error(bucket, "uptime/", type(e).__name__, str(e))
+        return []
+
+    keys = sorted(
+        (obj["Key"] for obj in resp.get("Contents", []) if obj["Key"].endswith(".json")),
+        reverse=True,
+    )[:max_sessions]
+
+    records: list[dict] = []
+    for key in keys:
+        data = _fetch_s3_json(bucket, key)
+        if isinstance(data, dict):
+            records.append(data)
+
+    records = [r for r in records if "connected_minutes" in r]
+    records.sort(key=lambda r: r.get("date", ""))
+    return records
+
+
+@st.cache_data(ttl=_ttl("research"))
+def load_latest_grading() -> dict | None:
+    """Return the newest `backtest/{date}/grading.json` from the research bucket.
+
+    Scans `backtest/` for date-stamped directories, finds the most recent
+    one that actually contains a `grading.json`, and returns the parsed
+    dict with a `_run_date` field added. Returns None if nothing found.
+    """
+    bucket = _research_bucket()
+    date_re = re.compile(r"^backtest/(\d{4}-\d{2}-\d{2})/")
+
+    date_keys: set[str] = set()
+    continuation: str | None = None
+    client = get_s3_client()
+    try:
+        while True:
+            kwargs: dict = {"Bucket": bucket, "Prefix": "backtest/", "Delimiter": "/"}
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            resp = client.list_objects_v2(**kwargs)
+            for cp in resp.get("CommonPrefixes") or []:
+                m = date_re.match(cp["Prefix"])
+                if m:
+                    date_keys.add(m.group(1))
+            if not resp.get("IsTruncated"):
+                break
+            continuation = resp.get("NextContinuationToken")
+    except Exception as e:
+        logger.warning("list backtest/ failed: %s", e)
+        _record_s3_error(bucket, "backtest/", type(e).__name__, str(e))
+        return None
+
+    for d in sorted(date_keys, reverse=True):
+        key = f"backtest/{d}/grading.json"
+        data = _fetch_s3_json(bucket, key)
+        if isinstance(data, dict):
+            data["_run_date"] = d
+            return data
+    return None
+
+
 def load_scoring_weights() -> dict | None:
     """Load current scoring_weights.json from the research bucket."""
     cfg = load_config()
