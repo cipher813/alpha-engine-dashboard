@@ -8,10 +8,10 @@ being optimized now and why alpha is or isn't the headline metric.
 import streamlit as st
 
 PHASES = [
-    {"name": "Data Pipeline", "status": "complete", "kpi": "Coverage"},
-    {"name": "Reliability Hardening", "status": "current", "kpi": "Uptime"},
-    {"name": "Alpha Optimization", "status": "upcoming", "kpi": "Alpha vs SPY"},
-    {"name": "Capital Scaling", "status": "upcoming", "kpi": "NAV"},
+    {"name": "Completeness", "status": "complete", "kpi": "Coverage"},
+    {"name": "Reliability + Evaluation", "status": "current", "kpi": "Uptime"},
+    {"name": "Performance (paper)", "status": "upcoming", "kpi": "Alpha vs SPY"},
+    {"name": "Performance (live)", "status": "upcoming", "kpi": "NAV"},
 ]
 
 _COLORS = {
@@ -23,7 +23,7 @@ _COLORS = {
 _ICONS = {"complete": "&#x2713;", "current": "&#x25B6;", "upcoming": "&#x2022;"}
 
 
-def render_phase_indicator(current_phase: str = "Reliability Hardening") -> None:
+def render_phase_indicator(current_phase: str = "Reliability + Evaluation") -> None:
     """Render the four-phase pill row with the given phase highlighted."""
     pills = []
     for i, phase in enumerate(PHASES):
@@ -61,16 +61,17 @@ def render_phase_indicator(current_phase: str = "Reliability Hardening") -> None
     )
 
 
-def render_phase_caption(current_phase: str = "Reliability Hardening") -> None:
+def render_phase_caption(current_phase: str = "Reliability + Evaluation") -> None:
     """One-line explainer under the phase indicator."""
     captions = {
-        "Data Pipeline": "Building out research, predictor, and data ingestion.",
-        "Reliability Hardening": (
-            "Focus: eliminating crashes and broker-disconnect windows during market hours. "
+        "Completeness": "All six modules wired end-to-end — research, prediction, execution, evaluation, data, and dashboard.",
+        "Reliability + Evaluation": (
+            "Reliability, transparency, and self-evaluation. "
+            "Every signal, prediction, and fill instrumented. "
             "Alpha is tracked but not optimized until uptime reaches 99%."
         ),
-        "Alpha Optimization": "Tuning signals, risk, and execution for sustained alpha vs SPY.",
-        "Capital Scaling": "Graduating from paper to live capital with progressive sizing.",
+        "Performance (paper)": "Tuning signals, risk, and execution for sustained alpha vs SPY on paper.",
+        "Performance (live)": "Graduating from paper to live capital with progressive sizing.",
     }
     text = captions.get(current_phase, "")
     if text:

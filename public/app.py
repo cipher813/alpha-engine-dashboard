@@ -12,7 +12,6 @@ Layout (top to bottom):
 
 import json
 import os
-from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
@@ -32,7 +31,7 @@ from loaders.s3_loader import (
 )
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
 
-_CURRENT_PHASE = "Reliability Hardening"
+_CURRENT_PHASE = "Reliability + Evaluation"
 _UPTIME_WINDOW_SESSIONS = 20
 
 # Load config
@@ -50,28 +49,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _is_market_open() -> bool:
-    from zoneinfo import ZoneInfo
-    now_et = datetime.now(ZoneInfo("US/Eastern"))
-    if now_et.weekday() >= 5:
-        return False
-    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
-    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
-    return market_open <= now_et <= market_close
-
-
-def _most_recent_trading_date(trades_df: pd.DataFrame | None) -> str | None:
-    if trades_df is None or trades_df.empty or "date" not in trades_df.columns:
-        return None
-    dates = pd.to_datetime(trades_df["date"]).dt.date.unique()
-    return str(max(dates)) if len(dates) > 0 else None
-
 
 # ---------------------------------------------------------------------------
 # Shared CSS + Header
@@ -280,73 +257,61 @@ except Exception:
 st.divider()
 
 # ===========================================================================
-# Section 3: Recent Trades
+# Section 3: Recent Trades — last 5 trading days
 # ===========================================================================
 
-# Show trades from most recent market session, but only if that session
-# is today or after the most recent market close. Reset once market opens
-# again (new session = no trades yet).
+_RECENT_TRADES_WINDOW_DAYS = 5
+
 if trades_df is not None and not trades_df.empty and "date" in trades_df.columns:
-    recent_date = _most_recent_trading_date(trades_df)
-    if recent_date:
-        recent_dt = date.fromisoformat(recent_date)
-        # Show trades if: (a) market is closed and trades are from today or
-        # the most recent trading day, or (b) market is open and trades are
-        # from today (intraday fills)
-        show_trades = False
-        if _is_market_open():
-            show_trades = (recent_dt == date.today())
-        else:
-            show_trades = True  # market closed — show last session
+    rt = trades_df.copy()
+    rt["_date"] = pd.to_datetime(rt["date"]).dt.date
+    recent_dates = sorted(rt["_date"].dropna().unique(), reverse=True)[:_RECENT_TRADES_WINDOW_DAYS]
+    rt = rt[rt["_date"].isin(recent_dates)].sort_values("_date", ascending=False, kind="stable")
 
-        if show_trades:
-            trades_copy = trades_df.copy()
-            trades_copy["date"] = pd.to_datetime(trades_copy["date"]).dt.date
-            recent_trades = trades_copy[trades_copy["date"] == recent_dt]
-            if not recent_trades.empty:
-                st.markdown("### Recent Trades")
-                st.caption(f"As of {recent_date}")
+    if not rt.empty:
+        st.markdown("### Recent Trades")
+        st.caption(
+            f"Last {len(recent_dates)} trading day"
+            f"{'s' if len(recent_dates) != 1 else ''} "
+            f"({recent_dates[-1]:%Y-%m-%d} → {recent_dates[0]:%Y-%m-%d})"
+        )
 
-                rt = recent_trades.copy()
-                # Shares: prefer filled_shares (intraday daemon writes the
-                # actual fill quantity); fall back to ordered `shares` for
-                # rows still in flight.
-                shares_num = pd.to_numeric(
-                    rt.get("filled_shares"), errors="coerce"
-                ).fillna(pd.to_numeric(rt.get("shares"), errors="coerce"))
-                # Value: filled_shares × fill_price, falling back to
-                # shares × price_at_order pre-fill.
-                fill_price = pd.to_numeric(rt.get("fill_price"), errors="coerce")
-                order_price = pd.to_numeric(rt.get("price_at_order"), errors="coerce")
-                price_used = fill_price.fillna(order_price)
-                value_num = shares_num * price_used
+        # Shares: prefer filled_shares (intraday daemon writes the actual fill
+        # quantity); fall back to ordered `shares` for rows still in flight.
+        shares_num = pd.to_numeric(
+            rt.get("filled_shares"), errors="coerce"
+        ).fillna(pd.to_numeric(rt.get("shares"), errors="coerce"))
+        # Value: filled_shares × fill_price, falling back to
+        # shares × price_at_order pre-fill.
+        fill_price = pd.to_numeric(rt.get("fill_price"), errors="coerce")
+        order_price = pd.to_numeric(rt.get("price_at_order"), errors="coerce")
+        price_used = fill_price.fillna(order_price)
+        value_num = shares_num * price_used
 
-                # Date column: show the trade date inline so the table is
-                # self-contained even when the caption scrolls out of view.
-                date_col = pd.to_datetime(rt["date"]).dt.strftime("%Y-%m-%d")
+        date_col = pd.to_datetime(rt["date"]).dt.strftime("%Y-%m-%d")
 
-                display = pd.DataFrame({
-                    "Date": date_col.values,
-                    "Ticker": rt["ticker"].values,
-                })
-                action_col = next(
-                    (c for c in ("action", "signal") if c in rt.columns), None
-                )
-                if action_col:
-                    display["Action"] = rt[action_col].values
-                display["Shares"] = [
-                    f"{int(round(x))}" if pd.notna(x) else "—"
-                    for x in shares_num
-                ]
-                display["Value"] = [
-                    f"${v:,.0f}" if pd.notna(v) else "—" for v in value_num
-                ]
+        display = pd.DataFrame({
+            "Date": date_col.values,
+            "Ticker": rt["ticker"].values,
+        })
+        action_col = next(
+            (c for c in ("action", "signal") if c in rt.columns), None
+        )
+        if action_col:
+            display["Action"] = rt[action_col].values
+        display["Shares"] = [
+            f"{int(round(x))}" if pd.notna(x) else "—"
+            for x in shares_num
+        ]
+        display["Value"] = [
+            f"${v:,.0f}" if pd.notna(v) else "—" for v in value_num
+        ]
 
-                st.dataframe(
-                    display.reset_index(drop=True),
-                    width="stretch", hide_index=True,
-                )
-                st.divider()
+        st.dataframe(
+            display.reset_index(drop=True),
+            width="stretch", hide_index=True,
+        )
+        st.divider()
 
 # ---------------------------------------------------------------------------
 # Footer

@@ -11,8 +11,8 @@ import streamlit as st
 
 _HERO_ONELINER = (
     "An agentic orchestration system that researches, decides, and acts "
-    "on US equities — with end-to-end measurement instrumented through "
-    "every step."
+    "on US equities — every signal, prediction, and fill traced from "
+    "research to P&amp;L."
 )
 
 _MISSION = (
