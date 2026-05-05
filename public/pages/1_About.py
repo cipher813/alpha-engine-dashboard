@@ -48,11 +48,7 @@ st.markdown(
 
     The name frames what the project is: agentic intelligence applied
     to a measurable, continuously verifiable problem. The work — the
-    *ergon* — is what's on display. Trading is the substrate; the
-    artifact is the orchestration pattern.
-
-    The underlying project name is **Alpha Engine** — repos and S3
-    paths use `alpha-engine` since they predate the public brand.
+    *ergon* — is what's on display.
     """
 )
 
@@ -69,15 +65,15 @@ st.markdown(
     Build a multi-agent trading system end-to-end, instrument every
     decision it makes, and let it tune itself. The interesting object
     is the orchestration pattern — six modules collaborating through
-    S3 contracts, three Step Function pipelines running unattended,
+    S3 contracts, three Step Function pipelines on a fixed cadence,
     and an autonomous feedback loop that writes optimized parameters
-    back into the system weekly.
+    back into the system.
 
     The system is in **Phase 2: Reliability + Measurability buildout**
-    — making the substrate trustworthy enough that Phase 3 can refine
+    — making the system trustworthy enough that Phase 3 can refine
     alpha on data, not vibes. Long-term alpha vs SPY is the metric
     Phase 3 is engineered to inflect; alpha is tracked, but not
-    optimized, until the substrate is ready.
+    optimized, until measurement is trustworthy.
 
     See [Home](/) for live phase progress and per-phase key objectives,
     [Architecture](/Architecture) for the visual system walkthrough,
@@ -99,11 +95,11 @@ st.markdown(
     (Anthropic's LLM coding assistant) is the active collaborator on
     the implementation pass. Each module's repo is public.
 
-    The project is a **harness for agentic-orchestration research** —
-    a working substrate where different architectures, models, and
-    patterns can be tested against measured baselines. Equities were
-    chosen because financial data is abundant, decisions are
-    unambiguous, and outcomes are continuously verifiable.
+    The project is a **harness for agentic-orchestration research**
+    where different architectures, models, and patterns can be tested
+    against measured baselines. Equities were chosen because financial
+    data is abundant, decisions are unambiguous, and outcomes are
+    continuously verifiable.
 
     Nous Ergon is also an experiment in how solo development can scale
     with an LLM coding tool actively in the loop.
@@ -122,10 +118,8 @@ st.markdown(
     """
     - [LinkedIn](https://www.linkedin.com/in/brian-c-mcmahon/)
     - [brian@nousergon.ai](mailto:brian@nousergon.ai)
-    - [GitHub](https://github.com/cipher813) — seven public repos
-      covering every module
-    - [Blog](https://nousergon.ai/blog) — long-form writing on what
-      surfaced while building this
+    - [GitHub](https://github.com/cipher813)
+    - [Blog](https://nousergon.ai/blog)
     """
 )
 
