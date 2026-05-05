@@ -15,9 +15,11 @@ import os
 import sys
 
 # Components live at the project root for sharing with the private dashboard;
-# add the parent directory to sys.path so `from components.*` resolves when
-# Streamlit runs with CWD=public/.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# append (don't prepend) so Streamlit's CWD entry (public/) is searched
+# first — that keeps `from charts.nav_chart import ...` resolving to
+# public/charts/, not the private dashboard's top-level charts/ which
+# has a different surface.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 import streamlit as st
