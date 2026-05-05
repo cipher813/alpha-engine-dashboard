@@ -1,6 +1,14 @@
 """
-Nous Ergon — About Page
-Model overview, pipeline explanation, and links.
+Nous Ergon — About
+
+Brand context page: brand origin (Nous Ergon = νοῦς ἔργον) + project
+thesis + who built it + contact.
+
+Per the presentation-layer outline (W2 spec), About owns brand context
+only — *not* module descriptions. System architecture + per-pipeline
+flows + per-module deep dives live on the Architecture page and the
+per-repo GitHub READMEs respectively. Same fact in two places = two
+staleness vectors.
 """
 
 import os
@@ -26,171 +34,92 @@ render_header(current_page="About")
 st.divider()
 
 # ---------------------------------------------------------------------------
-# What is Nous Ergon?
+# Brand origin
 # ---------------------------------------------------------------------------
 
-st.markdown("### What is Nous Ergon?")
+st.markdown("### Nous Ergon")
 
 st.markdown(
     """
-    Nous Ergon is a fully autonomous AI trading system. It researches stocks,
-    predicts which ones will outperform the market, executes trades, and
-    learns from its own results — all without human intervention.
+    **Nous Ergon** — Greek for *intelligence at work* (νοῦς ἔργον,
+    pronounced *noose air-gone*). *Nous* (νοῦς) is mind, intellect, the
+    capacity for reason. *Ergon* (ἔργον) is work, deed, function — the
+    same root as English *ergonomics* and *energy*.
 
-    The system measures itself against one metric: **alpha**, the difference
-    between its portfolio return and the S&P 500. A day where the portfolio
-    drops 1% but the S&P drops 2% is a +1% alpha day. Everything in the
-    system exists to sustain positive alpha over time.
+    The name frames what the project is: agentic intelligence applied
+    to a measurable, continuously verifiable problem. The work — the
+    *ergon* — is what's on display. Trading is the substrate; the
+    artifact is the orchestration pattern.
+
+    The underlying project name is **Alpha Engine** — repos and S3
+    paths use `alpha-engine` since they predate the public brand.
     """
 )
 
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# How It Works
+# Thesis
 # ---------------------------------------------------------------------------
 
-st.markdown("### How It Works")
+st.markdown("### Thesis")
 
 st.markdown(
     """
-    The system is built around a simple idea: **use the right tool for each
-    job**. LLMs are good at reading and reasoning over unstructured text.
-    Machine learning models are good at finding patterns in numerical data.
-    Deterministic rules are good at enforcing hard constraints. Nous Ergon
-    combines all three.
+    Build a multi-agent trading system end-to-end, instrument every
+    decision it makes, and let it tune itself. The interesting object
+    is the orchestration pattern — six modules collaborating through
+    S3 contracts, three Step Function pipelines running unattended,
+    and an autonomous feedback loop that writes optimized parameters
+    back into the system weekly.
+
+    The system is in **Phase 2: Reliability + Measurability buildout**
+    — making the substrate trustworthy enough that Phase 3 can refine
+    alpha on data, not vibes. Long-term alpha vs SPY is the metric
+    Phase 3 is engineered to inflect; alpha is tracked, but not
+    optimized, until the substrate is ready.
+
+    See [Home](/) for live phase progress and per-phase key objectives,
+    [Architecture](/Architecture) for the visual system walkthrough,
+    and [Retros](/Retros) for production case studies.
     """
-)
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.markdown(
-        """
-        #### Research
-        AI agents scan the S&P 500 and S&P 400 each week, filtering the full
-        universe down to a manageable set of candidates. The top candidates
-        get deep analysis — news sentiment, analyst research, and macro
-        conditions — producing a composite attractiveness score for each stock.
-
-        #### Prediction
-        A machine learning model predicts short-term sector-relative returns
-        using technical features computed from daily price data. It retrains
-        weekly on years of history but refreshes predictions every morning
-        with the latest market data. Research asks "is this a good stock?"
-        while the predictor asks "is now the right time?"
-        """
-    )
-
-with col2:
-    st.markdown(
-        """
-        #### Execution
-        Signals and predictions flow into a rule-based executor that sizes
-        positions, manages risk, and places trades on Interactive Brokers.
-        Risk guardrails enforce position limits, sector concentration caps,
-        and graduated drawdown response. A veto gate blocks entry when the
-        ML model predicts underperformance with high confidence.
-
-        #### Learning
-        A weekly backtester closes the feedback loop. It measures how
-        accurate past signals were, identifies which scoring factors are
-        most predictive, and auto-tunes parameters across the entire system.
-        Updated configs are written back and picked up by all downstream
-        modules — the system improves itself without manual intervention.
-        """
-    )
-
-st.markdown("---")
-
-# ---------------------------------------------------------------------------
-# Architecture
-# ---------------------------------------------------------------------------
-
-st.markdown("### Architecture")
-
-st.markdown(
-    """
-    The five modules communicate exclusively through S3 — there are no shared
-    databases or direct API calls between them. Each module reads its inputs,
-    does its work, and writes its outputs. This means any module can be
-    replaced independently as long as it respects the shared data contracts.
-
-    The system runs on two cadences: a **daily trading loop** (predictions
-    and execution every market morning, reconciliation at close) and a
-    **weekly optimization cycle** (research, model retraining, and
-    backtesting on Mondays).
-    """
-)
-
-st.markdown(
-    """
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 8px; padding: 20px; text-align: center; margin: 16px 0;">
-        <p style="font-size: 15px; font-family: monospace; color: #aaa; margin: 0;">
-            Research &rarr; Predictor &rarr; Executor &rarr; Backtester &rarr;
-            <span style="color: #1a73e8;">(feedback loop)</span>
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
 )
 
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# Tech Stack
+# Built by
 # ---------------------------------------------------------------------------
 
-st.markdown("### Tech Stack")
+st.markdown("### Built by")
 
-col_a, col_b, col_c = st.columns(3)
+st.markdown(
+    """
+    Brian McMahon. Single-author project — every line of code, every
+    architectural decision, every retro. The repos are public so the
+    design choices and the trade-offs accepted are inspectable.
 
-with col_a:
-    st.markdown(
-        """
-        **AI / ML**
-        - Claude (Haiku + Sonnet)
-        - LightGBM
-        - LangGraph
-        """
-    )
-
-with col_b:
-    st.markdown(
-        """
-        **Infrastructure**
-        - AWS (Lambda, EC2, S3)
-        - Interactive Brokers
-        - Cloudflare
-        """
-    )
-
-with col_c:
-    st.markdown(
-        """
-        **Stack**
-        - Python
-        - Streamlit
-        - SQLite
-        """
-    )
+    The project began as a vehicle for engineering an agentic system
+    end-to-end — multi-agent orchestration, autonomous self-improvement,
+    end-to-end measurement substrate — at a scale where outcomes are
+    unambiguous and continuously verifiable.
+    """
+)
 
 st.markdown("---")
 
 # ---------------------------------------------------------------------------
-# Learn More
+# Contact / Learn more
 # ---------------------------------------------------------------------------
 
-st.markdown("### Learn More")
+st.markdown("### Contact")
 
 st.markdown(
     """
-    For a deeper look at the design decisions, architecture, and lessons
-    learned, check out the [blog series](https://nousergon.ai/blog). For
-    per-module deep dives, see the [GitHub repos](https://github.com/cipher813)
-    — each module's README covers what it does, why, and how it fits into
-    the system.
+    - [GitHub](https://github.com/cipher813) — seven public repos
+      covering every module
+    - [Blog](https://nousergon.ai/blog) — long-form writing on what
+      surfaced while building this
     """
 )
 
