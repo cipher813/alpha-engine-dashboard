@@ -79,14 +79,21 @@ def render_header(current_page: str = "Home"):
 
 
 def render_footer():
-    """Render the shared page footer."""
+    """Render the shared page footer.
+
+    Footer CTAs intentionally narrower than the header nav — three
+    secondary destinations chosen to be the "if I'm scrolled to the
+    bottom and want one more thing" links: the visual deep-dive
+    (Architecture), the source code (GitHub org), and the long-form
+    writing (Blog). Header carries the full primary nav.
+    """
     st.divider()
     st.markdown(
         """
         <div style="text-align: center; padding: 8px 0 20px 0;">
             <p style="color: #aaa; font-size: 13px; margin-bottom: 6px;">
-                <a href="https://github.com/cipher813/alpha-engine-docs#readme"
-                   target="_blank"
+                <a href="/Architecture"
+                   target="_self"
                    style="color: #1a73e8; text-decoration: none; margin: 0 12px;">
                     Architecture
                 </a>
