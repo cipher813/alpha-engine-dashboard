@@ -1,10 +1,8 @@
-## System Evaluation Framework
+# System Evaluation Framework
 
-The evaluation framework grades every component in the Alpha Engine pipeline on a
-weekly basis. It produces a unified scorecard with letter grades, precision/recall/F1
-metrics at every decision boundary, and tracks component health over time.
+The evaluation framework grades every component in the Alpha Engine pipeline on a weekly basis. It produces a unified scorecard with letter grades, precision/recall/F1 metrics at every decision boundary, and tracks component health over time.
 
-*GitHub: [alpha-engine-backtester](https://github.com/cipher813/alpha-engine-backtester) (analysis/grading.py) · Last updated: 2026-04-08*
+> Operator reference. Not publicly rendered. Source-of-truth: `alpha-engine-backtester/analysis/grading.py` and the Saturday SF evaluator output. When the framework evolves, update the producer first; this doc is a downstream view.
 
 ---
 
