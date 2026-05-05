@@ -101,18 +101,18 @@ st.markdown(
     the implementation pass. The repos are public so the design
     choices and trade-offs are inspectable.
 
-    The project is two experiments running in parallel:
+    The project is a **harness for agentic-orchestration research** —
+    a working substrate where different architectures, models, and
+    patterns can be tested against measured baselines. Equities was
+    chosen for the data-abundance + verifiability combination, not for
+    the trading P&L: financial data is abundant, decisions are
+    unambiguous, and outcomes are continuously verifiable. The harness
+    is what makes the comparison surface honest — any new architecture
+    or model has to deliver against instrumented baselines, not
+    anecdote.
 
-    1. **Engineering an agentic system end-to-end** — multi-agent
-       orchestration, autonomous self-improvement, end-to-end
-       measurement substrate — at trading-domain scale where outcomes
-       are unambiguous and continuously verifiable.
-    2. **Testing how far solo development scales with an LLM coding
-       tool actively in the loop** — what's the design ambition + scope
-       a single developer can deliver when Claude Code is a working
-       collaborator on the actual code?
-
-    Both questions are answered in the open.
+    A parallel question: how far does solo development scale with an
+    LLM coding tool actively in the loop?
     """
 )
 
