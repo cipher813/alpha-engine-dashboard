@@ -101,12 +101,12 @@ st.markdown(
 
     The project is a **harness for agentic-orchestration research** —
     a working substrate where different architectures, models, and
-    patterns can be tested against measured baselines. Financial data
-    is abundant, decisions are unambiguous, and outcomes are
-    continuously verifiable.
+    patterns can be tested against measured baselines. Equities were
+    chosen because financial data is abundant, decisions are
+    unambiguous, and outcomes are continuously verifiable.
 
-    A parallel question: how far does solo development scale with an
-    LLM coding tool actively in the loop?
+    Nous Ergon is also an experiment in how solo development can scale
+    with an LLM coding tool actively in the loop.
     """
 )
 
