@@ -511,6 +511,28 @@ def load_executor_params_history() -> list[dict]:
     return history
 
 
+@st.cache_data(ttl=_ttl("research"))
+def load_rag_manifest() -> dict | None:
+    """Load `rag/manifest/latest.json` — RAG corpus inventory snapshot.
+
+    Producer: `alpha-engine-data` `rag/pipelines/emit_manifest.py`,
+    runs as step 6/6 of `run_weekly_ingestion.sh` (Saturday SF). Carries:
+
+      - `totals`: documents · chunks · tickers
+      - `by_source`: per `doc_type` rollup (10-K · 10-Q · 8-K · earnings
+        · thesis): document count · ticker count · chunk count
+      - `by_ticker_coverage`: tickers_with_any_doc + p25/p50/p75
+        docs/ticker
+      - `embedding`: model name + dimension
+      - `ingestion`: overall + per-source `last_run_ts`
+
+    Returns None until the first weekly run produces a manifest (next
+    Saturday SF, or via manual `python -m rag.pipelines.emit_manifest
+    --output-s3` invocation).
+    """
+    return _fetch_s3_json(_research_bucket(), "rag/manifest/latest.json")
+
+
 @st.cache_data(ttl=_ttl("trades"))
 def load_daily_data_health() -> dict | None:
     """Load `health/daily_data.json` — runtime ingestion attribution.
