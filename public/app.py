@@ -12,6 +12,12 @@ Layout (top to bottom):
 
 import json
 import os
+import sys
+
+# Components live at the project root for sharing with the private dashboard;
+# add the parent directory to sys.path so `from components.*` resolves when
+# Streamlit runs with CWD=public/.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 import streamlit as st

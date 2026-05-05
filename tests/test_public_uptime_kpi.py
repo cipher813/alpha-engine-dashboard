@@ -7,9 +7,9 @@ import sys
 
 import pytest
 
-_PUBLIC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public")
-if _PUBLIC not in sys.path:
-    sys.path.insert(0, _PUBLIC)
+_REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 # Skip the whole module if streamlit isn't installed in the test env.
 pytest.importorskip("streamlit")
