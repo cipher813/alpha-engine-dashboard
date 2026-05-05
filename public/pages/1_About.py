@@ -97,13 +97,13 @@ st.markdown(
     """
     **Brian McMahon.** Single-developer project; **Claude Code**
     (Anthropic's LLM coding assistant) is the active collaborator on
-    the implementation pass. All repos public.
+    the implementation pass. Each module's repo is public.
 
     The project is a **harness for agentic-orchestration research** —
     a working substrate where different architectures, models, and
-    patterns can be tested against measured baselines. Equities is the
-    substrate because financial data is abundant, decisions are
-    unambiguous, and outcomes are continuously verifiable.
+    patterns can be tested against measured baselines. Financial data
+    is abundant, decisions are unambiguous, and outcomes are
+    continuously verifiable.
 
     A parallel question: how far does solo development scale with an
     LLM coding tool actively in the loop?
