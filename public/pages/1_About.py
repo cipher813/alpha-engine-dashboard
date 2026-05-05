@@ -95,14 +95,26 @@ st.markdown("### Built by")
 
 st.markdown(
     """
-    Brian McMahon. Single-author project — every line of code, every
-    architectural decision, every retro. The repos are public so the
-    design choices and the trade-offs accepted are inspectable.
+    **Brian McMahon.** Single-developer project — Brian as architect,
+    decision-maker, and reviewer on every change; **Claude Code**
+    (Anthropic's LLM coding assistant) as the active collaborator on
+    the implementation pass. Every commit carries a `Co-Authored-By`
+    trailer to keep the workflow transparent. The repos are public so
+    the design choices, the trade-offs accepted, and the human-plus-LLM
+    workflow itself are all inspectable.
 
-    The project began as a vehicle for engineering an agentic system
-    end-to-end — multi-agent orchestration, autonomous self-improvement,
-    end-to-end measurement substrate — at a scale where outcomes are
-    unambiguous and continuously verifiable.
+    The project is two experiments running in parallel:
+
+    1. **Engineering an agentic system end-to-end** — multi-agent
+       orchestration, autonomous self-improvement, end-to-end
+       measurement substrate — at trading-domain scale where outcomes
+       are unambiguous and continuously verifiable.
+    2. **Testing how far solo development scales with an LLM coding
+       tool actively in the loop** — what's the design ambition + scope
+       a single developer can deliver when Claude Code is a working
+       collaborator on the actual code?
+
+    Both questions are answered in the open.
     """
 )
 
