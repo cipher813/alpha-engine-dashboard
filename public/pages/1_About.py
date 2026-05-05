@@ -95,21 +95,15 @@ st.markdown("### Built by")
 
 st.markdown(
     """
-    **Brian McMahon.** Single-developer project — Brian as architect,
-    decision-maker, and reviewer on every change; **Claude Code**
-    (Anthropic's LLM coding assistant) as the active collaborator on
-    the implementation pass. The repos are public so the design
-    choices and trade-offs are inspectable.
+    **Brian McMahon.** Single-developer project; **Claude Code**
+    (Anthropic's LLM coding assistant) is the active collaborator on
+    the implementation pass. All repos public.
 
     The project is a **harness for agentic-orchestration research** —
     a working substrate where different architectures, models, and
-    patterns can be tested against measured baselines. Equities was
-    chosen for the data-abundance + verifiability combination, not for
-    the trading P&L: financial data is abundant, decisions are
-    unambiguous, and outcomes are continuously verifiable. The harness
-    is what makes the comparison surface honest — any new architecture
-    or model has to deliver against instrumented baselines, not
-    anecdote.
+    patterns can be tested against measured baselines. Equities is the
+    substrate because financial data is abundant, decisions are
+    unambiguous, and outcomes are continuously verifiable.
 
     A parallel question: how far does solo development scale with an
     LLM coding tool actively in the loop?
