@@ -98,10 +98,8 @@ st.markdown(
     **Brian McMahon.** Single-developer project — Brian as architect,
     decision-maker, and reviewer on every change; **Claude Code**
     (Anthropic's LLM coding assistant) as the active collaborator on
-    the implementation pass. Every commit carries a `Co-Authored-By`
-    trailer to keep the workflow transparent. The repos are public so
-    the design choices, the trade-offs accepted, and the human-plus-LLM
-    workflow itself are all inspectable.
+    the implementation pass. The repos are public so the design
+    choices and trade-offs are inspectable.
 
     The project is two experiments running in parallel:
 
