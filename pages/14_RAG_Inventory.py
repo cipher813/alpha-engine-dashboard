@@ -242,14 +242,59 @@ st.divider()
 
 st.markdown("## Ingestion freshness")
 st.caption(
-    "Last successful ingest timestamp per `doc_type`. Drift between "
-    "sources is normal — SEC filings come in on issuer cadence; "
-    "earnings transcripts arrive within hours of call; theses regen "
-    "weekly with the Saturday research run."
+    "Per ingestion date × `doc_type`: documents (and chunks) landed that "
+    "day. Drift between sources is normal — SEC filings come in on issuer "
+    "cadence; earnings transcripts arrive within hours of call; theses "
+    "regen weekly with the Saturday research run."
 )
 
+by_date_source = ingestion.get("by_date_source") or []
 by_source_ts = ingestion.get("by_source_last_ts") or {}
-if by_source_ts:
+
+if by_date_source:
+    df_pivot_src = pd.DataFrame(by_date_source)
+    # Cap to last 26 ingestion dates for legibility (~6 months at weekly cadence).
+    distinct_dates = sorted(df_pivot_src["date"].unique(), reverse=True)
+    cap = 26
+    if len(distinct_dates) > cap:
+        kept = set(distinct_dates[:cap])
+        df_pivot_src = df_pivot_src[df_pivot_src["date"].isin(kept)]
+        st.caption(
+            f"Showing last {cap} ingestion dates of "
+            f"{len(distinct_dates)} on record."
+        )
+
+    def _build_pivot(value_col: str) -> pd.DataFrame:
+        pv = df_pivot_src.pivot_table(
+            index="date",
+            columns="doc_type",
+            values=value_col,
+            aggfunc="sum",
+            fill_value=0,
+        ).astype(int).sort_index(ascending=False)
+        pv["Total"] = pv.sum(axis=1)
+        totals = pv.sum(axis=0).to_frame().T
+        totals.index = ["Total"]
+        return pd.concat([pv, totals])
+
+    tab_docs, tab_chunks = st.tabs(["Documents", "Chunks"])
+    with tab_docs:
+        st.dataframe(
+            _build_pivot("documents").style.format("{:,}"),
+            use_container_width=True,
+        )
+    with tab_chunks:
+        st.dataframe(
+            _build_pivot("chunks").style.format("{:,}"),
+            use_container_width=True,
+        )
+elif by_source_ts:
+    # Fallback for manifests pre-1.1.0 (no `by_date_source`). Renders the
+    # legacy per-source last-ingest table so freshness still surfaces.
+    st.caption(
+        "Manifest predates schema 1.1.0 — rendering legacy last-ingest "
+        "timestamps. Re-run `emit_manifest.py` to populate the date pivot."
+    )
     ing_rows = []
     now = datetime.now(timezone.utc)
     for doc_type, ts_str in by_source_ts.items():
@@ -270,7 +315,7 @@ if by_source_ts:
     ing_df = pd.DataFrame(ing_rows).sort_values("Age (days)").reset_index(drop=True)
     st.dataframe(ing_df, use_container_width=True, hide_index=True)
 else:
-    st.info("Per-source ingestion timestamps not present in manifest.")
+    st.info("Per-source ingestion data not present in manifest.")
 
 st.divider()
 st.caption(
