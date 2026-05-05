@@ -27,7 +27,11 @@ import yaml
 
 from components.header import render_header, render_footer
 from components.landing_intro import render_landing_intro
-from components.phase_indicator import render_phase_indicator, render_phase_caption
+from components.phase_indicator import (
+    render_phase_indicator,
+    render_phase_caption,
+    render_phase_descriptions,
+)
 from components.styles import inject_base_css, inject_metric_css
 from components.report_card import render_report_card
 from components.uptime_kpi import render_uptime_kpi
@@ -39,7 +43,7 @@ from loaders.s3_loader import (
 )
 from charts.nav_chart import make_nav_chart, make_alpha_histogram
 
-_CURRENT_PHASE = "Reliability + Evaluation"
+_CURRENT_PHASE = "Reliability + Measurability"
 _UPTIME_WINDOW_SESSIONS = 20
 
 # Load config
@@ -80,6 +84,7 @@ st.divider()
 
 render_phase_indicator(current_phase=_CURRENT_PHASE)
 render_phase_caption(current_phase=_CURRENT_PHASE)
+render_phase_descriptions(current_phase=_CURRENT_PHASE)
 
 st.divider()
 
@@ -161,10 +166,11 @@ total_days = len(eod_active)
 # Section 1: Performance — Secondary KPIs (Phase 3 primary metric)
 # ===========================================================================
 
-st.markdown("### Portfolio Performance — Secondary Metric")
+st.markdown("### Performance — Phase 2 baseline")
 st.caption(
-    "Alpha is tracked but not optimized until uptime reaches 99%. "
-    "Phase 2 crashes skew short-run results; these numbers will become the headline KPI in Phase 3."
+    "Phase 2 is reliability and measurability buildout. Alpha tuning is "
+    "Phase 3 — gated on the substrate Phase 2 is making trustworthy. "
+    "These numbers are baseline, not optimized."
 )
 
 col1, col2, col3, col4 = st.columns(4)
@@ -187,8 +193,7 @@ st.plotly_chart(fig_nav, width="stretch")
 st.caption(
     "Vertical amber lines mark days with major executor incidents "
     f"(≥10% downtime or ≥5 service restarts). Reliability is tracked via "
-    "the System Report Card above; raw alpha numbers will become the "
-    "headline KPI in Phase 3."
+    "the System Report Card above."
 )
 
 # Alpha stats

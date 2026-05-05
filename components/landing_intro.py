@@ -47,8 +47,8 @@ _PILLARS = [
     (
         "Self-improvement loop",
         "Weekly evaluation of the system's own outputs writes parameter "
-        "updates back into the pipeline; full autonomy is the Phase 2 "
-        "deliverable.",
+        "updates back into four S3 configs that downstream modules read on "
+        "cold-start — the system retunes itself without manual intervention.",
     ),
     (
         "End-to-end measurement",

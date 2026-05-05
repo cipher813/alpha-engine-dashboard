@@ -30,11 +30,23 @@ def test_four_pillars_present():
     assert "End-to-end measurement" in titles
 
 
-def test_self_improvement_pillar_keeps_phase_2_honesty():
+def test_self_improvement_pillar_describes_mechanism_not_returns():
     body = dict(landing_intro._PILLARS)["Self-improvement loop"]
-    assert "Phase 2" in body, (
-        "Self-improvement pillar must explicitly frame full autonomy as the "
-        "Phase 2 deliverable, not as a current-state claim"
+    # Autonomy is now a Phase 1 receipt (the backtester→S3-config feedback
+    # loop is shipped); the pillar describes the mechanism rather than
+    # framing autonomy as future work. Still must not lead with returns.
+    forbidden = ["alpha", "outperform", "beating", "profit", "returns vs"]
+    leaked = [t for t in forbidden if t in body.lower()]
+    assert not leaked, (
+        f"Self-improvement pillar must not lean on returns-flavored "
+        f"framing; found: {leaked}"
+    )
+    # Honesty floor: the pillar should describe mechanism (configs / params /
+    # parameter updates etc.), not claim outcomes (alpha generation).
+    mechanism_words = ["config", "parameter", "tune", "evaluation", "loop"]
+    assert any(w in body.lower() for w in mechanism_words), (
+        "Self-improvement pillar must describe the mechanism (configs, "
+        "parameter updates, evaluation loop), not just claim self-improvement."
     )
 
 
