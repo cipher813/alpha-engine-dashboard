@@ -10,6 +10,7 @@ _ASSETS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 _NAV_LINKS = [
     ("Home", "/", True),
     ("About", "/About", True),
+    ("Architecture", "/Architecture", True),
     ("Retros", "/Retros", True),
     ("Blog", "/blog", True),
     ("GitHub", "https://github.com/cipher813/alpha-engine", False),
