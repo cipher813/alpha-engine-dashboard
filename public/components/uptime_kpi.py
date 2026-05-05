@@ -1,4 +1,4 @@
-"""Uptime KPI block — primary metric for the Reliability Hardening phase.
+"""Uptime KPI block — primary metric for the Reliability + Evaluation phase.
 
 Renders the rolling uptime %, a progress bar toward the 99% target, and
 supporting breakdown numbers (sessions counted, minutes up).
