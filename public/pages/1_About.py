@@ -120,6 +120,7 @@ st.markdown("### Contact")
 
 st.markdown(
     """
+    - [LinkedIn](https://www.linkedin.com/in/brian-c-mcmahon/)
     - [GitHub](https://github.com/cipher813) — seven public repos
       covering every module
     - [Blog](https://nousergon.ai/blog) — long-form writing on what
