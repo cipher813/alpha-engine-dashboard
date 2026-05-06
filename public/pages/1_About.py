@@ -63,11 +63,10 @@ st.markdown("### Thesis")
 st.markdown(
     """
     Build a multi-agent trading system end-to-end, instrument every
-    decision it makes, and let it tune itself. The interesting object
-    is the orchestration pattern — six modules collaborating through
-    S3 contracts, three Step Function pipelines on a fixed cadence,
-    and an autonomous feedback loop that writes optimized parameters
-    back into the system.
+    decision it makes, and let it tune itself. The orchestration
+    pattern consists of six modules collaborating through S3 contracts,
+    three Step Function pipelines on a fixed cadence, and an autonomous
+    feedback loop that writes optimized parameters back into the system.
 
     The system is in **Phase 2: Reliability + Measurability buildout**
     — making the system trustworthy enough that Phase 3 can refine

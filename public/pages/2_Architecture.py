@@ -7,10 +7,10 @@ is and how the pieces fit together.
 
 Differentiation from the GitHub system README + the private console
 Architecture page (pages/10_Architecture.py):
-- README: static GitHub-rendered mermaid; no click-through to repos.
-- This page: interactive design-token-styled mermaid + module
-  click-through to GitHub repos + S3 data contracts visualization +
-  autonomous feedback loop visualization (the last two not on README).
+- README: static GitHub-rendered mermaid.
+- This page: design-token-styled mermaid + S3 data contracts
+  visualization + autonomous feedback loop visualization (the last
+  two not on README).
 - Private console: deeper detail, internal-only commentary, designed
   for live screenshare during the demo.
 
@@ -91,25 +91,24 @@ def render_mermaid(diagram: str, height: int = 460) -> None:
 st.markdown(
     """
     The system flow at a glance — six modules, three Step Functions,
-    autonomous parameter feedback. Each module box links to the repo.
-    For the system map without interactive bits, see the
+    autonomous parameter feedback. For the same system map rendered
+    statically, see the
     [GitHub README](https://github.com/cipher813/alpha-engine-docs).
-    For per-module deep dives, see the per-repo READMEs linked from the
-    system architecture diagram below.
+    For per-module deep dives, see the per-repo READMEs.
     """
 )
 
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Section 2 — System architecture (interactive)
+# Section 2 — System architecture
 # ---------------------------------------------------------------------------
 
 st.markdown("### System architecture")
 st.caption(
     "Six modules communicating exclusively through S3 — research, "
     "predictor, executor, backtester, dashboard, and the data layer that "
-    "feeds them. Click any module to open its repo."
+    "feeds them."
 )
 
 render_mermaid("""
@@ -289,8 +288,7 @@ st.divider()
 
 st.markdown(
     """
-    Implementation lives in seven public repos linked from the system
-    architecture diagram above and in
+    Implementation lives in seven public repos indexed from
     [`alpha-engine-docs`](https://github.com/cipher813/alpha-engine-docs).
     Live system status: [Home](/). Curated production retros:
     [Retros](/Retros).
