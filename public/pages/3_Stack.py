@@ -50,11 +50,11 @@ st.markdown(
       macro economist + CIO + LLM-as-judge run as graph nodes with
       typed state. Vanilla LangChain doesn't compose for parallel
       multi-team coordination with state merging.
-    - **Anthropic Claude — tiered.** Haiku for per-ticker quant + qual
-      + peer-review (~12 calls per Saturday run); Sonnet only for
-      synthesis (macro economist + CIO batch evaluation + nuanced
-      judge cases). Sonnet is ~5× Haiku — reserving it for synthesis
-      keeps per-run cost stable.
+    - **Anthropic Claude — tiered.** Haiku for per-ticker
+      quant, qual, and peer-review (~12 calls per Saturday run);
+      Sonnet only for synthesis (macro economist, CIO batch
+      evaluation, nuanced judge cases). Sonnet is ~5× Haiku —
+      reserving it for synthesis keeps per-run cost stable.
     - **LangSmith** — auto-tracing on every production LLM call. The
       trajectory validator polls LangSmith for graph-correctness
       invariants (required nodes present, sector_team_node appears
@@ -88,11 +88,11 @@ st.markdown(
       for financial-domain text. Cheaper than OpenAI's
       text-embedding-3-* tier with better fit on the SEC-filing
       corpus the qual agents retrieve over.
-    - **Polygon.io** — primary market-data source for adjusted OHLCV
-      + intraday data; yfinance retained as cross-validation only,
-      not as a silent fallback (silent-fallback patterns have been a
-      repeat offender for masking real failures and were retired
-      across the data layer).
+    - **Polygon.io** — primary market-data source for adjusted
+      OHLCV and intraday data; yfinance retained as cross-validation
+      only, not as a silent fallback (silent-fallback patterns have
+      been a repeat offender for masking real failures and were
+      retired across the data layer).
     - **FRED + FMP** — macro indicators and supplemental fundamentals.
     """
 )
