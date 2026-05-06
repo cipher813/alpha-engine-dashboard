@@ -4,7 +4,9 @@ plotly>=5.18
 boto3>=1.34
 pyyaml>=6.0
 # alpha-engine-lib provides setup_logging used by app.py + health_checker.py
-# to attach the FlowDoctorHandler when FLOW_DOCTOR_ENABLED=1. The
-# [flow_doctor] extra pulls flow-doctor; no other extras are needed
+# to attach the FlowDoctorHandler when FLOW_DOCTOR_ENABLED=1, and the
+# transparency.substrate_health checker invoked by the Sat SF's
+# WeeklySubstrateHealthCheck state (added in alpha-engine-data 2026-05).
+# The [flow_doctor] extra pulls flow-doctor; no other extras are needed
 # (dashboard reads S3, not ArcticDB). Public since 2026-05-03.
-alpha-engine-lib[flow_doctor] @ git+https://github.com/cipher813/alpha-engine-lib@v0.2.2
+alpha-engine-lib[flow_doctor] @ git+https://github.com/cipher813/alpha-engine-lib@v0.5.0
