@@ -35,23 +35,7 @@ render_header(current_page="Stack")
 
 st.divider()
 
-# ---------------------------------------------------------------------------
-# Intro
-# ---------------------------------------------------------------------------
-
 st.markdown("### Stack")
-
-st.markdown(
-    """
-    The non-default product choices that earn their keep. Commodity AWS
-    primitives (S3, IAM, EventBridge, CloudWatch) are listed in passing
-    under *Compute & Orchestration* — every AWS-native system uses
-    those. The picks below are the ones a technical reader would
-    actually want to ask about.
-    """
-)
-
-st.divider()
 
 # ---------------------------------------------------------------------------
 # Agentic layer
@@ -195,31 +179,6 @@ st.markdown(
     - **VectorBT** — historical portfolio simulation in the backtester.
     - **pandas + numpy** — feature engineering, signal scoring,
       metric computation.
-    """
-)
-
-st.divider()
-
-# ---------------------------------------------------------------------------
-# Cross-reference
-# ---------------------------------------------------------------------------
-
-st.markdown(
-    """
-    ##### How the picks fit together
-
-    The architectural reasoning behind the load-bearing choices
-    (LangGraph, ArcticDB, Step Functions, Streamlit, decision-capture
-    as a first-class artifact, the autonomous feedback loop, paper-
-    account-first, cost discipline as a design constraint) lives in the
-    private architecture decision log alongside the trade-offs accepted
-    for each. The **Architecture** page in the nav above shows how the
-    pieces connect in flow.
-
-    Stack changes are infrequent — the last meaningful swap was the
-    ArcticDB cutover from parquet on S3 in April 2026. When a swap
-    happens, this page gets updated alongside the architecture decision
-    log entry.
     """
 )
 
