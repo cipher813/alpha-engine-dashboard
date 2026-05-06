@@ -455,6 +455,49 @@ def load_latest_grading() -> dict | None:
     return None
 
 
+@st.cache_data(ttl=_ttl("research"))
+def load_latest_provenance_grounding() -> dict | None:
+    """Return the newest `backtest/{date}/provenance_grounding.json` from
+    the research bucket.
+
+    Per-agent tool-call + input-trace metrics emitted by the backtester
+    evaluator on Saturday SF runs (alpha-engine-backtester#148). Companion
+    to ``load_latest_grading`` — same scan-for-date-stamped-dir pattern,
+    different filename.
+    """
+    bucket = _research_bucket()
+    date_re = re.compile(r"^backtest/(\d{4}-\d{2}-\d{2})/")
+
+    date_keys: set[str] = set()
+    continuation: str | None = None
+    client = get_s3_client()
+    try:
+        while True:
+            kwargs: dict = {"Bucket": bucket, "Prefix": "backtest/", "Delimiter": "/"}
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            resp = client.list_objects_v2(**kwargs)
+            for cp in resp.get("CommonPrefixes") or []:
+                m = date_re.match(cp["Prefix"])
+                if m:
+                    date_keys.add(m.group(1))
+            if not resp.get("IsTruncated"):
+                break
+            continuation = resp.get("NextContinuationToken")
+    except Exception as e:
+        logger.warning("list backtest/ for provenance_grounding failed: %s", e)
+        _record_s3_error(bucket, "backtest/", type(e).__name__, str(e))
+        return None
+
+    for d in sorted(date_keys, reverse=True):
+        key = f"backtest/{d}/provenance_grounding.json"
+        data = _fetch_s3_json(bucket, key)
+        if isinstance(data, dict):
+            data["_run_date"] = d
+            return data
+    return None
+
+
 def load_scoring_weights() -> dict | None:
     """Load current scoring_weights.json from the research bucket."""
     cfg = load_config()

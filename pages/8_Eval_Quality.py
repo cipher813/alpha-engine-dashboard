@@ -25,6 +25,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from loaders.eval_loader import load_eval_artifacts
+from loaders.s3_loader import load_latest_provenance_grounding
 
 
 st.set_page_config(page_title="Eval Quality — Alpha Engine", layout="wide")
@@ -74,7 +75,9 @@ if df.empty:
 # Tabs
 # ---------------------------------------------------------------------------
 
-tab_trend, tab_versions, tab_data = st.tabs(["Trend", "Versions", "Data"])
+tab_trend, tab_versions, tab_provenance, tab_data = st.tabs(
+    ["Trend", "Versions", "Provenance", "Data"]
+)
 
 
 # ── Trend tab ─────────────────────────────────────────────────────────────
@@ -161,6 +164,107 @@ with tab_versions:
             )
             fig.update_yaxes(range=[0.5, 5.5], dtick=1)
             st.plotly_chart(fig, use_container_width=True)
+
+
+# ── Provenance tab ────────────────────────────────────────────────────────
+
+
+with tab_provenance:
+    st.subheader("Per-agent tool-call + input-trace metrics")
+    st.caption(
+        "Fourth leg of the agent-justification stack. Sourced from "
+        "`s3://alpha-engine-research/backtest/{date}/provenance_grounding.json` "
+        "emitted by the backtester evaluator. Detects agents emitting "
+        "confident output without consulting tools (hallucination signal) "
+        "or with collapsed tool-call distributions (rule-equivalence signal)."
+    )
+
+    prov = load_latest_provenance_grounding()
+    if prov is None or prov.get("status") != "ok":
+        status = (prov or {}).get("status", "missing")
+        st.info(
+            f"No provenance_grounding artifact available (status={status}). "
+            "First emission lands on the next Saturday SF run after "
+            "alpha-engine-backtester#148 deploys."
+        )
+    else:
+        run_date = prov.get("most_recent_sf_date") or prov.get("_run_date")
+        st.caption(f"Most recent Saturday SF: **{run_date}**")
+
+        per_agent = prov.get("per_agent") or {}
+        if not per_agent:
+            st.info("No agent metrics for the most recent Saturday.")
+        else:
+            metric_rows = []
+            for agent_id, m in sorted(per_agent.items()):
+                metric_rows.append({
+                    "agent_id": agent_id,
+                    "n_artifacts": m.get("n_artifacts", 0),
+                    "mean_tool_calls": m.get("mean_n_tool_calls", 0),
+                    "distinct_tools": m.get("mean_n_distinct_tools", 0),
+                    "pct_zero_call_outputs": m.get("pct_zero_call_outputs", 0),
+                    "input_consumption": m.get("mean_input_consumption_ratio", 0),
+                })
+            metrics_df = pd.DataFrame(metric_rows)
+
+            st.dataframe(
+                metrics_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "pct_zero_call_outputs": st.column_config.NumberColumn(
+                        "% zero-call outputs",
+                        help="Fraction of outputs emitted with zero tool calls. "
+                             "For tool-equipped agents (macro + sector_team), "
+                             "non-zero is a hallucination signal.",
+                        format="%.1f%%",
+                    ),
+                    "input_consumption": st.column_config.NumberColumn(
+                        "input consumption",
+                        help="Fraction of input_data_snapshot top-level fields "
+                             "referenced in agent_output prose. Substring match.",
+                        format="%.2f",
+                    ),
+                    "mean_tool_calls": st.column_config.NumberColumn(
+                        "mean tool calls",
+                        format="%.1f",
+                    ),
+                    "distinct_tools": st.column_config.NumberColumn(
+                        "distinct tools",
+                        format="%.1f",
+                    ),
+                },
+            )
+
+            alarms = prov.get("tool_equipped_alarms") or []
+            if alarms:
+                st.error(
+                    f"Tool-equipped agent zero-call alarm: **{', '.join(alarms)}**. "
+                    "These agents emitted output without consulting any tools — "
+                    "investigate against the agent's decision_artifact for the run."
+                )
+
+            # Rolling — show per-agent trend if multi-Saturday data exists
+            rolling = (prov.get("rolling") or {}).get("per_agent") or {}
+            if rolling:
+                st.markdown("##### Rolling per-agent (8-week window)")
+                rolling_rows = [
+                    {
+                        "agent_id": agent_id,
+                        "n_saturdays": m.get("n_saturdays", 0),
+                        "mean_pct_zero": m.get("mean_pct_zero_call_outputs", 0),
+                        "mean_input_consumption": m.get(
+                            "mean_input_consumption_ratio", 0,
+                        ),
+                        "distinct_tools_total": m.get("n_distinct_tools", 0),
+                    }
+                    for agent_id, m in sorted(rolling.items())
+                ]
+                st.dataframe(
+                    pd.DataFrame(rolling_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
 
 # ── Data tab ──────────────────────────────────────────────────────────────
