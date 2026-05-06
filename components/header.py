@@ -11,6 +11,7 @@ _NAV_LINKS = [
     ("Home", "/", True),
     ("About", "/About", True),
     ("Architecture", "/Architecture", True),
+    ("Stack", "/Stack", True),
     ("Retros", "/Retros", True),
     ("Blog", "/blog", True),
     ("GitHub", "https://github.com/cipher813/alpha-engine-docs", False),
