@@ -14,19 +14,19 @@ The morning briefing email itself was the detector — the distribution shape wa
 
 ### Root cause
 
-The Layer-2 Ridge meta-learner combines outputs from Layer-1 specialized models with research-context features (research composite score, conviction signal, sector macro modifier). During an earlier scaffold pass these research features had been wired up with placeholder *constant* values for training-time only, with the intent to swap in real per-ticker values once the data plumbing was ready. The plumbing landed but the swap was missed.
+The Layer-2 Ridge meta-learner combines outputs from Layer-1 specialized models with research-context features (research composite score, conviction signal, sector macro modifier) sourced from the research module's `signals.json`. The research module was emitting these values correctly — the bug was on the *consumption* side. During an earlier scaffold pass inside the predictor's meta-trainer, these features had been hardcoded to placeholder *constant* values in the walk-forward training loop, with the intent to swap in the real per-ticker reads from `signals.json` once that data path was finalized. The data path landed but the swap was missed.
 
 With constant inputs, Ridge correctly assigned zero coefficients to those features — a healthy regularizer doing exactly what it was supposed to do. The meta-learner then effectively reduced to its remaining Layer-1 inputs, producing a much narrower decision surface than it was designed to.
 
 ### Fix
 
-Five-PR arc on `alpha-engine-predictor`:
+Five-PR arc, all on `alpha-engine-predictor` — no changes to the research module or to `signals.json`:
 
-- Wire real per-ticker research features into the L2 training data
+- Replace the hardcoded constants in `meta_trainer.py` with real per-ticker reads from `signals.json` for the walk-forward training loop
 - Streaming refactor for memory efficiency (an OOM issue surfaced as a side-effect during the fix; closed in the same arc rather than papered over)
 - Three retraining attempts, each gated on a named-baseline check before promotion
 
-The final promoted model showed all four research-feature coefficients non-zero — the structural diagnostic that the upstream wiring was now load-bearing.
+The final promoted model showed the research-context coefficients non-zero — the structural diagnostic that the upstream wiring was now load-bearing.
 
 ### Systemic improvement
 
