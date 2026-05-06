@@ -13,7 +13,7 @@ _NAV_LINKS = [
     ("Architecture", "/Architecture", True),
     ("Retros", "/Retros", True),
     ("Blog", "/blog", True),
-    ("GitHub", "https://github.com/cipher813/alpha-engine", False),
+    ("GitHub", "https://github.com/cipher813/alpha-engine-docs", False),
     ("Console", "https://console.nousergon.ai", False),
 ]
 
@@ -97,7 +97,7 @@ def render_footer():
                    style="color: #1a73e8; text-decoration: none; margin: 0 12px;">
                     Architecture
                 </a>
-                <a href="https://github.com/cipher813"
+                <a href="https://github.com/cipher813/alpha-engine-docs"
                    target="_blank"
                    style="color: #1a73e8; text-decoration: none; margin: 0 12px;">
                     GitHub

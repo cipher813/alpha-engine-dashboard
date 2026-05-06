@@ -136,13 +136,6 @@ flowchart LR
     Predictor -.read-only.-> Dashboard
     Executor -.read-only.-> Dashboard
     Backtester -.read-only.-> Dashboard
-
-    click Data "https://github.com/cipher813/alpha-engine-data" _blank
-    click Research "https://github.com/cipher813/alpha-engine-research" _blank
-    click Predictor "https://github.com/cipher813/alpha-engine-predictor" _blank
-    click Executor "https://github.com/cipher813/alpha-engine" _blank
-    click Backtester "https://github.com/cipher813/alpha-engine-backtester" _blank
-    click Dashboard "https://github.com/cipher813/alpha-engine-dashboard" _blank
 """, height=520)
 
 st.divider()
