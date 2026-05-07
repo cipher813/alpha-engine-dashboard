@@ -267,9 +267,9 @@ class TestLibVersionPin:
             "to be importable"
         )
         assert "@main" not in text, "alpha-engine-lib must be pinned to a tag, not @main"
-        assert "@v0.5.0" in text, (
-            "alpha-engine-lib should pin to v0.5.0 (bumped from v0.2.2 to "
-            "pick up the transparency substrate health checker used by "
-            "the Sat SF's WeeklySubstrateHealthCheck state); update this "
-            "test if the pin moves further forward"
+        assert "@v0.5.3" in text, (
+            "alpha-engine-lib should pin to v0.5.3 (bumped from v0.5.0 to "
+            "pick up the transparency Period multiple-of-60 fix surfaced "
+            "by the 2026-05-06 first-substrate-exercise on the dashboard "
+            "EC2); update this test if the pin moves further forward"
         )
