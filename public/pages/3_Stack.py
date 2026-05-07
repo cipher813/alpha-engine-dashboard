@@ -1,10 +1,10 @@
 """
 Nous Ergon — Stack
 
-Curated list of the non-default product choices in the system. Commodity
-AWS primitives (S3, EventBridge, IAM) are mentioned in passing under
-Compute & Orchestration; the page surfaces the picks a hiring manager
-or technical reader would actually want to ask about.
+Curated list of the non-default product choices in the system. The page
+surfaces the picks a hiring manager or technical reader would actually
+want to ask about; commodity primitives (S3, EventBridge, IAM, etc.) are
+omitted by design.
 
 Per the per-surface zones-of-responsibility matrix: this page owns the
 flat product list with one-liner rationale. Architectural reasoning
@@ -60,6 +60,9 @@ st.markdown(
       invariants (required nodes present, sector_team_node appears
       exactly 6 times) post-`graph.invoke()`. Free tier covers a
       personal-scale workload.
+    - **Pydantic** — typed agent outputs (`with_structured_output(...,
+      include_raw=True)` with strict-mode parse-error contract across
+      every LLM-output site).
     """
 )
 
@@ -94,6 +97,26 @@ st.markdown(
       been a repeat offender for masking real failures and were
       retired across the data layer).
     - **FRED + FMP** — macro indicators and supplemental fundamentals.
+    - **VectorBT** — historical portfolio simulation in the backtester.
+    """
+)
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# ML tools
+# ---------------------------------------------------------------------------
+
+st.markdown("#### ML tools")
+
+st.markdown(
+    """
+    - **Python 3.12 / 3.13** — primary language across all eight repos.
+      Lambda runs 3.12; local development on 3.13.
+    - **LightGBM** — Layer-1 gradient-boosted models in the predictor
+      meta-ensemble (momentum + volatility).
+    - **pandas + numpy** — feature engineering, signal scoring,
+      metric computation.
     """
 )
 
@@ -126,10 +149,6 @@ st.markdown(
     - **CloudFormation** — Infrastructure-as-Code for Step Functions,
       Lambda functions, IAM roles, EventBridge rules. Drift detector
       compares CloudFormation stamps against live AWS state weekly.
-    - Commodity AWS in the mix: **S3** (everything), **EventBridge**
-      (cron triggers), **CloudWatch** (logs + custom metrics + alarms),
-      **SSM** (EC2 command surface), **SNS** (alerting), **IAM**
-      (codified roles + drift checker).
     """
 )
 
@@ -148,37 +167,10 @@ st.markdown(
       pick for a single-author project: writing a custom React
       dashboard would be weeks of work for the same read-only
       monitoring outcome.
-    - **Cloudflare Access** — authn for the private console. Email
-      OTP, no password store to operate.
-    - **Cloudflare Email Routing** — `brian@` and `security@nousergon.ai`
-      forward to a personal inbox; no mail server.
     - **IBC (Interactive Brokers Gateway)** — paper-account broker
       connection on the executor host. Hard runtime check refuses
       to connect to non-paper accounts (account ID must start with
       "D") — defense against accidental live-account wiring.
-    """
-)
-
-st.divider()
-
-# ---------------------------------------------------------------------------
-# Languages + ecosystem
-# ---------------------------------------------------------------------------
-
-st.markdown("#### Languages & ecosystem")
-
-st.markdown(
-    """
-    - **Python 3.12 / 3.13** — primary language across all eight repos.
-      Lambda runs 3.12; local development on 3.13.
-    - **Pydantic** — typed agent outputs (`with_structured_output(...,
-      include_raw=True)` with strict-mode parse-error contract across
-      every LLM-output site).
-    - **LightGBM** — Layer-1 gradient-boosted models in the predictor
-      meta-ensemble (momentum + volatility).
-    - **VectorBT** — historical portfolio simulation in the backtester.
-    - **pandas + numpy** — feature engineering, signal scoring,
-      metric computation.
     """
 )
 
