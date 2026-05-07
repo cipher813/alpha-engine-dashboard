@@ -11,6 +11,9 @@ notify:
   - type: github
     repo: cipher813/alpha-engine-dashboard
     token: ${FLOW_DOCTOR_GITHUB_TOKEN}
+  - type: s3
+    bucket: alpha-engine-research
+    subsystem: dashboard
 store:
   type: sqlite
   path: /tmp/flow_doctor.db
