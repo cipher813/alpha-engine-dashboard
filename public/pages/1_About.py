@@ -90,10 +90,10 @@ st.markdown("### Built by")
 
 st.markdown(
     """
-    **Brian McMahon.** Single-developer project begun in March 2026;
-    **Claude Code** (Anthropic's LLM coding assistant) is the active
-    collaborator on the implementation pass. Each module's repo is
-    public.
+    **Brian McMahon.** Single-developer project in development since
+    March 2026; **Claude Code** (Anthropic's LLM coding assistant) is
+    the active collaborator on the implementation pass. Each module's
+    repo is public.
 
     The project is a **harness for agentic-orchestration research**
     where different architectures, models, and patterns can be tested
