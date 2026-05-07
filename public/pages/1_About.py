@@ -90,9 +90,10 @@ st.markdown("### Built by")
 
 st.markdown(
     """
-    **Brian McMahon.** Single-developer project; **Claude Code**
-    (Anthropic's LLM coding assistant) is the active collaborator on
-    the implementation pass. Each module's repo is public.
+    **Brian McMahon.** Single-developer project, in development since
+    March 2026; **Claude Code** (Anthropic's LLM coding assistant) is
+    the active collaborator on the implementation pass. Each module's
+    repo is public.
 
     The project is a **harness for agentic-orchestration research**
     where different architectures, models, and patterns can be tested
@@ -100,8 +101,8 @@ st.markdown(
     data is abundant, decisions are unambiguous, and outcomes are
     continuously verifiable.
 
-    Nous Ergon is also an experiment in how solo development can scale
-    with an LLM coding tool actively in the loop.
+    Nous Ergon is also a demonstration of how AI-augmented solo
+    engineering can scale.
     """
 )
 
