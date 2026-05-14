@@ -267,10 +267,9 @@ class TestLibVersionPin:
             "to be importable"
         )
         assert "@main" not in text, "alpha-engine-lib must be pinned to a tag, not @main"
-        assert "@v0.12.0" in text, (
-            "alpha-engine-lib should pin to v0.12.0 (alpha_engine_lib.secrets "
-            "module — SSM-backed get_secret() helper with env fallback; bumped "
-            "as part of the 2026-05-12 .env-to-SSM arc for alignment with the "
-            "other 5 repos, even though dashboard has zero secret reads today); "
-            "update this test if the pin moves further forward"
+        assert "@v0.16.0" in text, (
+            "alpha-engine-lib should pin to v0.16.0 (canonical eval-artifact "
+            "readers — load_latest_eval_artifact + list_eval_artifacts; bumped "
+            "2026-05-14 to back the regime substrate loaders in s3_loader.py). "
+            "Update this test if the pin moves further forward."
         )
