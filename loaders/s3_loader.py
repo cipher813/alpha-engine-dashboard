@@ -593,6 +593,85 @@ def load_daily_data_health() -> dict | None:
 
 
 @st.cache_data(ttl=_ttl("research"))
+def load_regime_substrate_latest() -> dict | None:
+    """Load the most recent regime substrate artifact via the canonical
+    ``regime/latest.json`` sidecar pointer.
+
+    Producer: ``alpha-engine-predictor-regime-substrate`` Lambda, runs
+    weekly in the Saturday SF ``RegimeSubstrate`` state (between
+    RAGIngestion and Research). Carries:
+
+      - ``hmm``: P(bear/neutral/bull) posterior probabilities + argmax +
+        weeks_in_current_state + log_likelihood
+      - ``composite``: AQR-style risk-on/risk-off ``intensity_z`` scalar
+        (positive = risk-on) + per-feature z-scores
+      - ``bocpd``: ``change_signal`` boolean + run-length confidence
+      - ``guardrails``: VIX / SPY 30d / HY OAS threshold breach flags
+      - ``features``: raw macro feature values that fed the run
+      - ``model_metadata``: fit window + HMM feature columns + run_id
+
+    Resolves the dated artifact via the ``latest.json`` sidecar to
+    handle same-day re-runs cleanly. Returns ``None`` if the substrate
+    has not been written yet (Stage A pre-deploy state, or the SF state
+    Catch[States.ALL] tripped non-blocking and Research continued
+    without a fresh substrate).
+    """
+    sidecar = _fetch_s3_json(_research_bucket(), "regime/latest.json")
+    if not sidecar:
+        return None
+    artifact_key = sidecar.get("artifact_key")
+    if not artifact_key:
+        return None
+    return _fetch_s3_json(_research_bucket(), artifact_key)
+
+
+@st.cache_data(ttl=_ttl("research"))
+def load_regime_substrate_history(n_weeks: int = 26) -> list[dict]:
+    """List recent regime substrate artifacts, oldest → newest.
+
+    Lists ``regime/{YYMMDDHHMM}.json`` keys (canonical eval_artifacts
+    shape — flat layout, no calendar_date sub-partition), sorts by
+    run_id (lexicographic = chronological since YYMMDDHHMM), and loads
+    the most recent ``n_weeks``.
+
+    Returns an empty list when no artifacts exist yet. Used by the
+    regime page to render HMM-probability + composite-intensity trends
+    over the observation window.
+    """
+    bucket = _research_bucket()
+    prefix = "regime/"
+    try:
+        client = get_s3_client()
+        paginator = client.get_paginator("list_objects_v2")
+        run_ids: list[tuple[str, str]] = []  # (run_id, artifact_key)
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                k = obj.get("Key", "")
+                rel = k[len(prefix):]
+                # Canonical shape: {run_id}.json at the prefix root.
+                # Skip latest.json sidecar + any nested keys (none expected).
+                if "/" in rel or not rel.endswith(".json"):
+                    continue
+                run_id = rel[:-len(".json")]
+                if run_id == "latest" or not run_id.isdigit() or len(run_id) != 10:
+                    continue
+                run_ids.append((run_id, k))
+    except Exception as e:
+        logger.error("Failed to list regime substrate artifacts: %s", e)
+        _record_s3_error(bucket, prefix, type(e).__name__, str(e))
+        return []
+
+    run_ids.sort()  # YYMMDDHHMM sort = chronological
+    selected = run_ids[-n_weeks:]
+    out: list[dict] = []
+    for _run_id, key in selected:
+        payload = _fetch_s3_json(bucket, key)
+        if payload is not None:
+            out.append(payload)
+    return out
+
+
+@st.cache_data(ttl=_ttl("research"))
 def load_research_params() -> dict | None:
     """Load `config/research_params.json` (CIO mode flag + reason).
 
