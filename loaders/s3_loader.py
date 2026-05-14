@@ -594,81 +594,47 @@ def load_daily_data_health() -> dict | None:
 
 @st.cache_data(ttl=_ttl("research"))
 def load_regime_substrate_latest() -> dict | None:
-    """Load the most recent regime substrate artifact via the canonical
-    ``regime/latest.json`` sidecar pointer.
+    """Load the most recent regime substrate artifact.
 
     Producer: ``alpha-engine-predictor-regime-substrate`` Lambda, runs
     weekly in the Saturday SF ``RegimeSubstrate`` state (between
-    RAGIngestion and Research). Carries:
+    RAGIngestion and Research). Carries HMM posteriors + composite
+    intensity_z + BOCPD change_signal + guardrail flags + raw macro
+    features + model_metadata.
 
-      - ``hmm``: P(bear/neutral/bull) posterior probabilities + argmax +
-        weeks_in_current_state + log_likelihood
-      - ``composite``: AQR-style risk-on/risk-off ``intensity_z`` scalar
-        (positive = risk-on) + per-feature z-scores
-      - ``bocpd``: ``change_signal`` boolean + run-length confidence
-      - ``guardrails``: VIX / SPY 30d / HY OAS threshold breach flags
-      - ``features``: raw macro feature values that fed the run
-      - ``model_metadata``: fit window + HMM feature columns + run_id
-
-    Resolves the dated artifact via the ``latest.json`` sidecar to
-    handle same-day re-runs cleanly. Returns ``None`` if the substrate
-    has not been written yet (Stage A pre-deploy state, or the SF state
-    Catch[States.ALL] tripped non-blocking and Research continued
-    without a fresh substrate).
+    Delegates to ``alpha_engine_lib.eval_artifacts.load_latest_eval_artifact``
+    for canonical sidecar→artifact resolution (the lib's helper
+    returns None on any failure mode — missing sidecar, malformed
+    pointer, missing artifact body). When None, the dashboard's
+    Regime page renders a graceful "no substrate yet" warning.
     """
-    sidecar = _fetch_s3_json(_research_bucket(), "regime/latest.json")
-    if not sidecar:
-        return None
-    artifact_key = sidecar.get("artifact_key")
-    if not artifact_key:
-        return None
-    return _fetch_s3_json(_research_bucket(), artifact_key)
+    from alpha_engine_lib.eval_artifacts import load_latest_eval_artifact
+
+    return load_latest_eval_artifact(
+        get_s3_client(), bucket=_research_bucket(), prefix="regime",
+    )
 
 
 @st.cache_data(ttl=_ttl("research"))
 def load_regime_substrate_history(n_weeks: int = 26) -> list[dict]:
     """List recent regime substrate artifacts, oldest → newest.
 
-    Lists ``regime/{YYMMDDHHMM}.json`` keys (canonical eval_artifacts
-    shape — flat layout, no calendar_date sub-partition), sorts by
-    run_id (lexicographic = chronological since YYMMDDHHMM), and loads
-    the most recent ``n_weeks``.
+    Used by the regime page to render HMM-probability + composite-
+    intensity trends over the observation window.
 
-    Returns an empty list when no artifacts exist yet. Used by the
-    regime page to render HMM-probability + composite-intensity trends
-    over the observation window.
+    Delegates to ``alpha_engine_lib.eval_artifacts.list_eval_artifacts``
+    for canonical YYMMDDHHMM chronological sort + n_recent capping +
+    skip-non-conforming-keys filtering + partial-progress on body
+    fetch failures.
     """
-    bucket = _research_bucket()
-    prefix = "regime/"
-    try:
-        client = get_s3_client()
-        paginator = client.get_paginator("list_objects_v2")
-        run_ids: list[tuple[str, str]] = []  # (run_id, artifact_key)
-        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                k = obj.get("Key", "")
-                rel = k[len(prefix):]
-                # Canonical shape: {run_id}.json at the prefix root.
-                # Skip latest.json sidecar + any nested keys (none expected).
-                if "/" in rel or not rel.endswith(".json"):
-                    continue
-                run_id = rel[:-len(".json")]
-                if run_id == "latest" or not run_id.isdigit() or len(run_id) != 10:
-                    continue
-                run_ids.append((run_id, k))
-    except Exception as e:
-        logger.error("Failed to list regime substrate artifacts: %s", e)
-        _record_s3_error(bucket, prefix, type(e).__name__, str(e))
-        return []
+    from alpha_engine_lib.eval_artifacts import list_eval_artifacts
 
-    run_ids.sort()  # YYMMDDHHMM sort = chronological
-    selected = run_ids[-n_weeks:]
-    out: list[dict] = []
-    for _run_id, key in selected:
-        payload = _fetch_s3_json(bucket, key)
-        if payload is not None:
-            out.append(payload)
-    return out
+    return list_eval_artifacts(
+        get_s3_client(),
+        bucket=_research_bucket(),
+        prefix="regime",
+        n_recent=n_weeks,
+    )
 
 
 @st.cache_data(ttl=_ttl("research"))

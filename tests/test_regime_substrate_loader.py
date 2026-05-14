@@ -1,18 +1,15 @@
 """Tests for the regime substrate loader functions in s3_loader.py.
 
-Covers:
-- ``load_regime_substrate_latest`` resolves via the latest.json sidecar
-  and returns the dated artifact payload
-- Returns None when no sidecar exists yet (pre-deploy state)
-- ``load_regime_substrate_history`` lists YYMMDDHHMM-shaped artifacts,
-  sorts chronologically, takes the most recent N
-- History skips the latest.json sidecar and non-conforming keys
+Since the lib v0.16.0 adoption, ``load_regime_substrate_latest`` and
+``load_regime_substrate_history`` delegate to
+``alpha_engine_lib.eval_artifacts.load_latest_eval_artifact`` and
+``list_eval_artifacts`` respectively. The lib has its own comprehensive
+test coverage of all failure modes (missing sidecar, malformed
+artifact_key, missing body, partial-progress on listing, etc.).
 
-Uses a lighter-weight test pattern than ``test_s3_loader_data.py`` —
-patches loader-module attributes directly rather than mocking
-``builtins.open`` + reimporting, which can collide with system module
-imports on a fresh test session (cf. _osx_support.py reading a system
-plist during platform-detection).
+These tests just verify the *wiring* — that the dashboard loaders
+call the lib functions with the correct bucket + prefix arguments and
+propagate their results. Behavioral coverage lives in the lib.
 """
 from __future__ import annotations
 
@@ -39,10 +36,9 @@ def loader():
     """Force-import the real ``loaders.s3_loader`` module.
 
     Other test files (``test_eval_loader.py``) replace
-    ``sys.modules['loaders.s3_loader']`` with a MagicMock at module-import
-    time and never restore it — when our tests run AFTER those, a naive
-    ``from loaders import s3_loader`` returns the mock. Drop any cached
-    MagicMock and reimport to get the real module.
+    ``sys.modules['loaders.s3_loader']`` with a MagicMock at module-
+    import time and never restore it — drop any cached MagicMock and
+    reimport to get the real module.
     """
     import importlib
     for mod_name in ("loaders.s3_loader", "loaders"):
@@ -54,18 +50,6 @@ def loader():
     return s3_loader
 
 
-_LATEST_SIDECAR = {
-    "run_id": "2605170230",
-    "artifact_key": "regime/2605170230.json",
-    "calendar_date": "2026-05-17",
-    "trading_day": "2026-05-15",
-    "schema_version": 1,
-    "hmm_argmax": "neutral",
-    "composite_intensity_z": 0.15,
-    "regime_change_signal": False,
-    "written_at": "2026-05-17T02:30:00Z",
-}
-
 _DATED_ARTIFACT = {
     "calendar_date": "2026-05-17",
     "trading_day": "2026-05-15",
@@ -74,122 +58,79 @@ _DATED_ARTIFACT = {
     "hmm": {"argmax": "neutral", "probs": {"bear": 0.18, "neutral": 0.62, "bull": 0.20}},
     "composite": {"intensity_z": 0.15},
     "bocpd": {"change_signal": False},
-    "features": {"vix_level": 17.4},
 }
 
 
 class TestLoadRegimeSubstrateLatest:
-    def test_resolves_sidecar_to_artifact(self, loader):
-        def _fetch(bucket, key):
-            if key == "regime/latest.json":
-                return _LATEST_SIDECAR
-            if key == "regime/2605170230.json":
-                return _DATED_ARTIFACT
-            return None
-        with patch.object(loader, "_fetch_s3_json", side_effect=_fetch):
-            result = loader.load_regime_substrate_latest()
+    """The dashboard loader delegates to alpha_engine_lib's
+    load_latest_eval_artifact. These tests pin the wiring (correct
+    bucket + prefix, propagated return value) — failure-mode behavior
+    is covered by the lib's own tests."""
+
+    def test_delegates_to_lib_with_research_bucket_and_regime_prefix(self, loader):
+        import alpha_engine_lib.eval_artifacts as ea
+        fake_client = MagicMock()
+        with patch.object(loader, "get_s3_client", return_value=fake_client):
+            with patch.object(loader, "_research_bucket", return_value="alpha-engine-research"):
+                with patch.object(ea, "load_latest_eval_artifact", return_value=_DATED_ARTIFACT) as mock_lib:
+                    result = loader.load_regime_substrate_latest()
         assert result == _DATED_ARTIFACT
+        mock_lib.assert_called_once_with(
+            fake_client, bucket="alpha-engine-research", prefix="regime",
+        )
 
-    def test_returns_none_when_sidecar_missing(self, loader):
-        with patch.object(loader, "_fetch_s3_json", return_value=None):
-            result = loader.load_regime_substrate_latest()
-        assert result is None
-
-    def test_returns_none_when_sidecar_lacks_artifact_key(self, loader):
-        def _fetch(bucket, key):
-            if key == "regime/latest.json":
-                return {"run_id": "2605170230"}  # missing artifact_key
-            return _DATED_ARTIFACT
-        with patch.object(loader, "_fetch_s3_json", side_effect=_fetch):
-            result = loader.load_regime_substrate_latest()
+    def test_propagates_none_from_lib(self, loader):
+        """When the lib returns None (substrate not yet published), the
+        dashboard loader must propagate None — the Regime page renders
+        a graceful 'no substrate yet' warning."""
+        import alpha_engine_lib.eval_artifacts as ea
+        with patch.object(loader, "get_s3_client", return_value=MagicMock()):
+            with patch.object(loader, "_research_bucket", return_value="b"):
+                with patch.object(ea, "load_latest_eval_artifact", return_value=None):
+                    result = loader.load_regime_substrate_latest()
         assert result is None
 
 
 class TestLoadRegimeSubstrateHistory:
-    def _fake_s3_client_with_keys(self, keys: list[str]):
-        client = MagicMock()
-        contents = [{"Key": k} for k in keys]
-        paginator = MagicMock()
-        paginator.paginate.return_value = [{"Contents": contents}]
-        client.get_paginator.return_value = paginator
-        return client
+    """Wiring tests for the history loader — delegates to lib's
+    list_eval_artifacts with the n_recent cap."""
 
-    def test_lists_canonical_artifacts_chronologically(self, loader):
-        keys = [
-            "regime/2604120230.json",  # older
-            "regime/2605170230.json",  # newer
-            "regime/2604260230.json",  # middle
-            "regime/latest.json",      # sidecar — must be skipped
+    def test_delegates_to_lib_with_n_recent_capped(self, loader):
+        import alpha_engine_lib.eval_artifacts as ea
+        fake_client = MagicMock()
+        sentinel = [
+            {"run_id": "2604120230"},
+            {"run_id": "2604260230"},
+            {"run_id": "2605170230"},
         ]
-        fake_client = self._fake_s3_client_with_keys(keys)
-
-        def _fetch(bucket, key):
-            run_id = key.split("/")[-1].replace(".json", "")
-            return {"run_id": run_id}
-
         with patch.object(loader, "get_s3_client", return_value=fake_client):
-            with patch.object(loader, "_fetch_s3_json", side_effect=_fetch):
-                result = loader.load_regime_substrate_history(n_weeks=10)
+            with patch.object(loader, "_research_bucket", return_value="alpha-engine-research"):
+                with patch.object(ea, "list_eval_artifacts", return_value=sentinel) as mock_lib:
+                    result = loader.load_regime_substrate_history(n_weeks=10)
+        assert result == sentinel
+        mock_lib.assert_called_once_with(
+            fake_client,
+            bucket="alpha-engine-research",
+            prefix="regime",
+            n_recent=10,
+        )
 
-        assert [p["run_id"] for p in result] == [
-            "2604120230", "2604260230", "2605170230",
-        ], "history must be sorted oldest → newest by run_id"
+    def test_default_n_weeks_is_26(self, loader):
+        """26-week default matches the dashboard's history-window
+        display range — pin to catch accidental drift."""
+        import alpha_engine_lib.eval_artifacts as ea
+        with patch.object(loader, "get_s3_client", return_value=MagicMock()):
+            with patch.object(loader, "_research_bucket", return_value="b"):
+                with patch.object(ea, "list_eval_artifacts", return_value=[]) as mock_lib:
+                    loader.load_regime_substrate_history()
+        kwargs = mock_lib.call_args.kwargs
+        assert kwargs.get("n_recent") == 26
 
-    def test_takes_only_last_n(self, loader):
-        keys = [f"regime/26{m:02d}010230.json" for m in range(1, 11)]  # 10 months
-        fake_client = self._fake_s3_client_with_keys(keys)
-        with patch.object(loader, "get_s3_client", return_value=fake_client):
-            with patch.object(loader, "_fetch_s3_json", side_effect=lambda b, k: {"key": k}):
-                result = loader.load_regime_substrate_history(n_weeks=3)
-        assert len(result) == 3
-        # Should be the three most-recent (months 8, 9, 10)
-        assert [r["key"] for r in result] == [
-            "regime/2608010230.json",
-            "regime/2609010230.json",
-            "regime/2610010230.json",
-        ]
-
-    def test_skips_nonconforming_keys(self, loader):
-        keys = [
-            "regime/2605170230.json",
-            "regime/retrospective/2605170230.json",  # nested → skip
-            "regime/latest.json",                     # sidecar → skip
-            "regime/notnumeric.json",                 # non-numeric → skip
-            "regime/12345.json",                      # wrong length → skip
-            "regime/some.random.parquet",             # wrong ext → skip
-        ]
-        fake_client = self._fake_s3_client_with_keys(keys)
-        with patch.object(loader, "get_s3_client", return_value=fake_client):
-            with patch.object(loader, "_fetch_s3_json", side_effect=lambda b, k: {"key": k}):
-                result = loader.load_regime_substrate_history(n_weeks=10)
-        assert len(result) == 1
-        assert result[0]["key"] == "regime/2605170230.json"
-
-    def test_empty_when_no_artifacts(self, loader):
-        fake_client = self._fake_s3_client_with_keys([])
-        with patch.object(loader, "get_s3_client", return_value=fake_client):
-            with patch.object(loader, "_fetch_s3_json", side_effect=lambda b, k: None):
-                result = loader.load_regime_substrate_history(n_weeks=26)
+    def test_returns_empty_when_lib_returns_empty(self, loader):
+        """Pre-deploy state — no substrate artifacts yet → empty list."""
+        import alpha_engine_lib.eval_artifacts as ea
+        with patch.object(loader, "get_s3_client", return_value=MagicMock()):
+            with patch.object(loader, "_research_bucket", return_value="b"):
+                with patch.object(ea, "list_eval_artifacts", return_value=[]):
+                    result = loader.load_regime_substrate_history(n_weeks=26)
         assert result == []
-
-    def test_skips_fetch_failures(self, loader):
-        """If one artifact body fails to fetch (S3 hiccup), the others
-        should still come back — partial-progress preferred over all-fail."""
-        keys = [
-            "regime/2604120230.json",
-            "regime/2604260230.json",
-            "regime/2605170230.json",
-        ]
-        fake_client = self._fake_s3_client_with_keys(keys)
-
-        def _fetch(bucket, key):
-            if "2604260230" in key:
-                return None  # simulate fetch failure
-            return {"key": key}
-
-        with patch.object(loader, "get_s3_client", return_value=fake_client):
-            with patch.object(loader, "_fetch_s3_json", side_effect=_fetch):
-                result = loader.load_regime_substrate_history(n_weeks=10)
-        assert len(result) == 2
-        keys_returned = [r["key"] for r in result]
-        assert "regime/2604260230.json" not in keys_returned
