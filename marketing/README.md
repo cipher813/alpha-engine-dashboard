@@ -35,9 +35,40 @@ marketing/
 cd marketing/
 npm install        # idempotent, first-time setup
 npm run dev        # local dev at http://localhost:4321
-npm run build      # production build → dist/
+npm run check      # astro check (TS + Astro template diagnostics)
+npm run lint       # biome lint (JS/TS/JSON; .astro out of scope, see below)
+npm run format     # biome format --write
+npm run format:check  # biome format check (CI mode, no writes)
+npm run build      # astro check && astro build → dist/
 npm run preview    # preview the production build locally
 ```
+
+## Hygiene baseline
+
+Institutional-default tooling so the SOTA discipline doesn't drift over time:
+
+- **`astro check`** runs as part of `npm run build` — TS + Astro template
+  diagnostics are hard failures, can't ship with type errors.
+- **Biome** handles format + lint for JS/TS/JSON files. `.astro` files are
+  excluded from Biome's lint scope because Biome's parser doesn't yet
+  understand `.astro` template references to frontmatter variables (would
+  false-positive on every component's main data export). Astro's own
+  `astro check` covers `.astro` linting.
+- **`@astrojs/sitemap`** auto-generates `sitemap-index.xml` + `sitemap-0.xml`
+  at build time from declared routes. `astro.config.mjs` sets `site:` to the
+  canonical URL.
+- **`public/robots.txt`** allows everything, advertises the sitemap.
+- **JSON-LD structured data** is rendered into `<head>` by `Base.astro` —
+  defaults to a WebSite + Organization graph; pages can override via the
+  `jsonLd` prop for Article / AboutPage / BreadcrumbList etc.
+- **Canonical `<link rel="canonical">`** is generated per-page from `Astro.url`.
+- **Skip-to-main-content link** at the top of `<body>` for keyboard
+  navigation (WCAG 2.1 baseline).
+- **`.github/workflows/marketing-ci.yml`** runs `npm ci && biome lint &&
+  biome format --check && astro check && astro build` on PRs touching
+  `marketing/**`, plus verifies `sitemap-index.xml` and `robots.txt` made it
+  into `dist/`. Per the [[reference_live_disable_without_source_fix_antipattern]]
+  discipline — the build can't silently regress.
 
 ## Deploy plan (current state: scaffold only, not yet wired to apex)
 
