@@ -1,4 +1,6 @@
 ---
+import { Image } from 'astro:assets';
+import nousErgonLogo from '../assets/nous-ergon-logo.png';
 import '../styles/global.css';
 
 interface Props {
@@ -84,14 +86,24 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
 
     <header class="border-b border-white/10">
       <nav
-        class="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between"
+        class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between gap-6"
         aria-label="Primary"
       >
         <a
           href="/"
-          class="text-base font-semibold tracking-tight text-zinc-100 hover:text-white transition"
+          class="flex items-center group"
+          aria-label="Nous Ergon home"
         >
-          Nous Ergon
+          <Image
+            src={nousErgonLogo}
+            alt="Nous Ergon"
+            widths={[96, 192, 288]}
+            sizes="144px"
+            height={36}
+            class="h-9 w-auto opacity-90 group-hover:opacity-100 transition"
+            loading="eager"
+            decoding="sync"
+          />
         </a>
         <div class="flex items-center gap-5 text-sm text-zinc-400">
           <a href="/about" class="hover:text-zinc-100 transition">About</a>
