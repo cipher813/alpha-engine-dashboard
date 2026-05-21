@@ -1,0 +1,86 @@
+---
+import Base from '../layouts/Base.astro';
+
+const pillars = [
+  {
+    title: 'Multi-agent orchestration',
+    body: 'Six sector teams plus a portfolio-level decision agent and a macro layer collaborate weekly on a LangGraph + Claude stack. Structured outputs and rubric-based LLM-as-judge throughout.',
+  },
+  {
+    title: 'Machine-learning overlay',
+    body: 'A stacked ensemble of gradient-boosted and linear models produces market-relative return predictions and confidence-driven veto signals on a 21-day horizon.',
+  },
+  {
+    title: 'Self-improvement loop',
+    body: "Weekly evaluation of the system's own outputs writes parameter updates back into four S3 configs that downstream modules read on cold-start. The system retunes itself without manual intervention.",
+  },
+  {
+    title: 'End-to-end measurement',
+    body: 'Every signal, prediction, fill, and dollar of P&L is instrumented and traceable. The live console is a view, not a measurement layer.',
+  },
+];
+---
+
+<Base>
+  <section class="max-w-3xl mx-auto px-6 pt-20 pb-16 text-center">
+    <p class="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-6">
+      &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu;  ·  intelligence at work
+    </p>
+    <h1 class="text-3xl md:text-4xl font-semibold text-zinc-100 leading-tight mb-6">
+      An experimentation harness for systematic equity strategies.
+    </h1>
+    <p class="text-base md:text-lg text-zinc-400 leading-relaxed">
+      Multi-agent research, machine-learning prediction, and risk-gated execution,
+      instrumented end-to-end from signal to P&amp;L.
+    </p>
+    <p class="text-base md:text-lg text-zinc-400 leading-relaxed mt-4">
+      The first experiment is alpha capture against the S&amp;P 500.
+    </p>
+    <div class="mt-10 flex items-center justify-center gap-4 text-sm">
+      <a
+        href="https://live.nousergon.ai/"
+        class="rounded-md border border-white/15 px-4 py-2 text-zinc-100 hover:bg-white/5 transition"
+      >
+        Live console &rarr;
+      </a>
+      <a
+        href="/about"
+        class="rounded-md px-4 py-2 text-zinc-400 hover:text-zinc-100 transition"
+      >
+        About the project
+      </a>
+    </div>
+  </section>
+
+  <section class="max-w-3xl mx-auto px-6 py-8">
+    <p class="text-sm md:text-base text-zinc-400 leading-relaxed">
+      Research agents scan the US large- and mid-cap universe each week. A
+      machine-learning ensemble predicts short-term moves. A risk-gated executor
+      places trades. A weekly backtester evaluates the system's own outputs and
+      computes parameter updates that flow back into the next run, closing a
+      feedback loop the system is being engineered to operate without manual
+      intervention.
+    </p>
+    <p class="text-sm md:text-base text-zinc-400 leading-relaxed mt-5">
+      Equities are the proving ground: decisions, outcomes, and P&amp;L are
+      unambiguous and continuously verifiable. The orchestration, measurement,
+      and learning loops generalize to any domain where multi-agent collaboration
+      and end-to-end measurement matter.
+    </p>
+  </section>
+
+  <section class="max-w-5xl mx-auto px-6 py-12">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {
+        pillars.map((p) => (
+          <div class="rounded-lg border border-white/10 bg-white/[0.03] p-5">
+            <div class="text-xs font-semibold uppercase tracking-wider text-sky-400 mb-2">
+              {p.title}
+            </div>
+            <p class="text-sm text-zinc-300 leading-relaxed">{p.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+</Base>

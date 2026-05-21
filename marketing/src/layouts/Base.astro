@@ -1,0 +1,64 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Nous Ergon — Experimentation harness for systematic equity strategies',
+  description = 'An experimentation harness for systematic equity strategies. Multi-agent research, machine-learning prediction, risk-gated execution, instrumented end-to-end from signal to P&L. The first experiment is alpha capture against the S&P 500.',
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" class="bg-black text-zinc-200 antialiased">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Nous Ergon" />
+    <meta property="og:url" content="https://nousergon.ai/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>{title}</title>
+  </head>
+  <body class="min-h-screen flex flex-col font-sans">
+    <header class="border-b border-white/10">
+      <nav class="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+        <a href="/" class="text-base font-semibold tracking-tight text-zinc-100 hover:text-white transition">
+          Nous Ergon
+        </a>
+        <div class="flex items-center gap-6 text-sm text-zinc-400">
+          <a href="/about" class="hover:text-zinc-100 transition">About</a>
+          <a href="/architecture" class="hover:text-zinc-100 transition">Architecture</a>
+          <a href="https://live.nousergon.ai/" class="hover:text-zinc-100 transition">Live console &rarr;</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="flex-1">
+      <slot />
+    </main>
+
+    <footer class="border-t border-white/10 mt-24">
+      <div class="max-w-5xl mx-auto px-6 py-8 text-xs text-zinc-500 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          Built by <a href="https://www.linkedin.com/in/brian-c-mcmahon/" class="text-zinc-400 hover:text-zinc-100 transition">Brian McMahon</a>
+          &middot;
+          <a href="https://github.com/cipher813" class="text-zinc-400 hover:text-zinc-100 transition">GitHub</a>
+          &middot;
+          <a href="mailto:brian@nousergon.ai" class="text-zinc-400 hover:text-zinc-100 transition">brian@nousergon.ai</a>
+        </div>
+        <div class="text-zinc-600">
+          &nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu;
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
