@@ -21,7 +21,7 @@ Read-only Streamlit dashboard for monitoring the full Alpha Engine system. Power
 - **System health** — last-run timestamps for the three Step Functions (weekly, weekday, EOD), deploy cadence, test surface trend
 - **Execution evaluation** — fill quality, entry-trigger distribution, sizing decisions, intraday slippage
 - **LLM-as-judge eval quality** — rubric scores over time per agent
-- **Live + private split** — `live/` directory powers the public live console (currently at nousergon.ai, moving to `live.nousergon.ai`); the rest of the repo serves the private interview-demo dashboard at console.nousergon.ai
+- **Three-surface split** — `marketing/` (Astro static site, target apex `nousergon.ai`, scaffold landed 2026-05-21 not yet at apex); `live/` (Streamlit live console, currently at nousergon.ai, moving to `live.nousergon.ai` when marketing flips to apex); the multipage Streamlit app at the repo root powers the private interview-demo dashboard at `console.nousergon.ai`
 
 ## Phase 2 measurement contribution
 
