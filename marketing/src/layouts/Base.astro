@@ -60,7 +60,10 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="canonical" href={canonicalUrl} />
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={description} />
@@ -87,6 +90,8 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
     <header class="relative pt-8 md:pt-10 pb-6">
       <a
         href="https://console.nousergon.ai/"
+        target="_blank"
+        rel="noopener noreferrer"
         class="absolute top-4 right-4 md:top-5 md:right-6 text-[11px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-200 transition"
       >
         Console &rarr;
@@ -116,7 +121,12 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
           <a href="/stack" class="hover:text-zinc-100 transition">Stack</a>
           <a href="/retros/" class="hover:text-zinc-100 transition">Retros</a>
           <a href="/blog/" class="hover:text-zinc-100 transition">Blog</a>
-          <a href="https://live.nousergon.ai/" class="hover:text-zinc-100 transition">
+          <a
+            href="https://live.nousergon.ai/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="hover:text-zinc-100 transition"
+          >
             Dashboard &rarr;
           </a>
         </nav>
