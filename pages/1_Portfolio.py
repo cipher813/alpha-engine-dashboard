@@ -27,7 +27,11 @@ from shared.formatters import format_pct, format_dollar, color_return
 from shared.normalizers import to_decimal_series
 from shared.accuracy_metrics import compute_drawdown, compute_sharpe, find_drawdown_episodes
 from shared.constants import get_thresholds
-from shared.position_pnl import parse_positions_snapshot, enrich_positions
+from shared.position_pnl import (
+    compute_position_lifecycles,
+    enrich_positions,
+    parse_positions_snapshot,
+)
 
 _TH = get_thresholds()
 _HHI_DIVERSIFIED = _TH["hhi_diversified"]
@@ -354,6 +358,80 @@ if positions_df is not None and not positions_df.empty:
 
 else:
     st.info("No positions snapshot available in today's data.")
+
+# ---------------------------------------------------------------------------
+# Section 4b: Position Lifecycle History (ROADMAP L137)
+# ---------------------------------------------------------------------------
+#
+# Per-trade `realized_pnl` (single fill) lives in trades.db; daily
+# portfolio NAV decomposition lives in eod_pnl.csv. Neither rolls up to
+# per-position-lifecycle ("AAPL opened 4/15, closed 5/08, total P&L
+# $X"). This section is that rollup — closes the L137 gap PR #100 had
+# to reframe to "per-trade realized P&L."
+
+st.header("Position Lifecycle History")
+st.caption(
+    "One row per opened position. Entry trade + linked exits "
+    "(REDUCE / EXIT / COVER) collapsed via `entry_trade_id`. "
+    "Status: **closed** (all shares exited), **open_partial** "
+    "(REDUCE only), **open** (no linked exits). Closed ROADMAP L137."
+)
+
+lifecycles_df = compute_position_lifecycles(trades_df)
+
+if lifecycles_df is None or lifecycles_df.empty:
+    st.info(
+        "No position lifecycles to roll up yet. Surface populates once "
+        "`trades.db` has at least one ENTER record. Each entry's linked "
+        "exits collapse on the entry's `trade_id` via the `entry_trade_id` "
+        "column (alpha-engine `executor/trade_logger.py:57`)."
+    )
+else:
+    closed = lifecycles_df[lifecycles_df["status"] == "closed"]
+    open_partial = lifecycles_df[lifecycles_df["status"] == "open_partial"]
+    open_full = lifecycles_df[lifecycles_df["status"] == "open"]
+
+    lcols = st.columns(5)
+    lcols[0].metric("Closed", len(closed))
+    lcols[1].metric("Open (partial)", len(open_partial))
+    lcols[2].metric("Open", len(open_full))
+    if not closed.empty:
+        total_realized = float(closed["total_realized_pnl"].sum())
+        lcols[3].metric(
+            "Realized P&L (closed)",
+            f"${total_realized:,.0f}",
+            delta=f"{(total_realized / max(1, len(closed))):,.0f} avg",
+        )
+        median_hold = closed["holding_days"].median()
+        if pd.notna(median_hold):
+            lcols[4].metric("Median holding (days)", f"{int(median_hold)}")
+
+    # Render the table. Closed positions first (most operationally
+    # interesting — the realized-attribution view); open last.
+    display_cols = [
+        c for c in (
+            "ticker", "sector", "entry_date", "exit_date", "holding_days",
+            "entry_price", "shares_entered", "n_exits",
+            "total_realized_pnl", "total_realized_return_pct",
+            "total_realized_alpha_pct", "status",
+        ) if c in lifecycles_df.columns
+    ]
+    display_df = lifecycles_df[display_cols].copy()
+    for date_col in ("entry_date", "exit_date"):
+        if date_col in display_df.columns:
+            display_df[date_col] = pd.to_datetime(
+                display_df[date_col], errors="coerce"
+            ).dt.strftime("%Y-%m-%d")
+    if "total_realized_pnl" in display_df.columns:
+        display_df["total_realized_pnl"] = display_df["total_realized_pnl"].map(
+            lambda v: f"${v:,.0f}" if pd.notna(v) else "—"
+        )
+    for pct_col in ("total_realized_return_pct", "total_realized_alpha_pct"):
+        if pct_col in display_df.columns:
+            display_df[pct_col] = display_df[pct_col].map(
+                lambda v: f"{v * 100:.1f}%" if pd.notna(v) and isinstance(v, (int, float)) else "—"
+            )
+    st.dataframe(display_df, hide_index=True, use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # Section 5: Portfolio Summary Stats
