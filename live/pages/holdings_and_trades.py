@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 import pandas as pd
 import streamlit as st
 
-from loaders.s3_loader import load_trades_full
+from loaders.s3_loader import load_thesis_summaries, load_trades_full
 from shared import load_and_prepare_eod
 
 _RECENT_TRADES_WINDOW_DAYS = 5
@@ -42,6 +42,8 @@ try:
 except (TypeError, ValueError):
     positions = {}
 
+thesis_by_ticker = load_thesis_summaries()
+
 rows: list[dict] = []
 total_invested = 0.0
 if isinstance(positions, dict) and positions:
@@ -53,16 +55,19 @@ if isinstance(positions, dict) and positions:
             "Shares": info.get("shares", "—"),
             "Value": f"${mv:,.0f}",
             "Sector": info.get("sector", "—") or "—",
+            "Rationale": thesis_by_ticker.get(ticker, "—"),
         })
 elif isinstance(positions, list) and positions:
     for p in positions:
+        ticker = p.get("ticker", "?")
         mv = p.get("market_value", 0) or 0
         total_invested += mv
         rows.append({
-            "Ticker": p.get("ticker", "?"),
+            "Ticker": ticker,
             "Shares": p.get("shares", "—"),
             "Value": f"${mv:,.0f}",
             "Sector": p.get("sector", "—") or "—",
+            "Rationale": thesis_by_ticker.get(ticker, "—"),
         })
 
 if rows:
@@ -72,10 +77,22 @@ if rows:
         "Shares": "—",
         "Value": f"${cash:,.0f}",
         "Sector": "—",
+        "Rationale": "—",
     })
     pos_df = pd.DataFrame(rows)
     pos_df["Shares"] = pos_df["Shares"].astype(str)
-    st.dataframe(pos_df, width="stretch", hide_index=True)
+    st.dataframe(
+        pos_df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Rationale": st.column_config.TextColumn(
+                "Rationale",
+                help="Most recent research thesis summary from signals.json",
+                width="large",
+            ),
+        },
+    )
 else:
     st.info("No open positions.")
 
