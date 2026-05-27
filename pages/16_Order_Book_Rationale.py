@@ -52,7 +52,12 @@ _STATE_COLOR = {
     "predictor_vetoed": "#4a148c",    # purple — ML veto
     "risk_blocked": "#880e4f",        # magenta — hard risk gate
     "held": "#004d40",                # teal — currently held in portfolio
-    "no_action": "#1e1e1e",           # neutral — eligible, not selected
+    "no_action": "#1e1e1e",           # neutral — pre-1.2.0 aggregate slug
+    # 1.2.0+ sub-states — research HOLD/EXIT/REDUCE on non-held tickers
+    # is filtered at the producer (dead signal — no order possible), so
+    # the only sub-states reachable here are the optimizer-driven ones.
+    "no_action_optimizer_zero_weight": "#1a237e",  # indigo
+    "no_action_unknown": "#5d4037",                # muted-red — bug-flag
 }
 
 _STATE_LABEL = {
@@ -63,6 +68,10 @@ _STATE_LABEL = {
     "risk_blocked": "Risk blocked",
     "held": "Held",
     "no_action": "No action",
+    # 1.2.0+ sub-states — labels phrase the operator-readable reason so
+    # the table answers "why?" without requiring the drill-down.
+    "no_action_optimizer_zero_weight": "No action — optimizer chose 0",
+    "no_action_unknown": "No action — unknown (investigate)",
 }
 
 _RECON_STATUS_COLOR = {
