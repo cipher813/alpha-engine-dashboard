@@ -77,13 +77,24 @@ def _load_check_results() -> dict | None:
     return _fetch_s3_json(_research_bucket(), CHECK_RESULTS_KEY)
 
 
-def _format_age(iso_ts: str | None) -> str:
-    """Render an age string from an ISO-8601 timestamp."""
-    if not iso_ts:
+def _format_age(iso_ts) -> str:
+    """Render an age string from an ISO-8601 timestamp.
+
+    Accepts ``str | None`` semantically, but defensively type-checks the
+    input — when fed through ``DataFrame.apply()`` with the PyArrow
+    backend, JSON null values arrive as ``pd.NA`` (not Python ``None``),
+    which is truthy under ``not iso_ts`` for some dtype paths AND fails
+    ``datetime.fromisoformat`` with ``TypeError`` rather than
+    ``ValueError``. Surfaced 2026-05-28 after the freshness-monitor
+    Phase 6 bootstrap landed live ``check_results.json`` with 49/51
+    null ``last_modified`` values (grace_period entries that hadn't
+    been probed yet).
+    """
+    if not isinstance(iso_ts, str) or not iso_ts:
         return "—"
     try:
         ts = datetime.fromisoformat(iso_ts)
-    except ValueError:
+    except (ValueError, TypeError):
         return iso_ts
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
