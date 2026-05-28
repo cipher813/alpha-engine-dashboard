@@ -156,6 +156,57 @@ if _freshness_heartbeat is not None:
     st.divider()
 
 
+# ─── Section 0.5: Active Observations KPI strip ─────────────────────────
+# Companion summary for the dedicated page at /Active_Observations.
+# Reads alpha-engine-config/private-docs/OBSERVATION_REGISTRY.yaml
+# directly (no Lambda or S3 hop — the registry IS the data). Sibling
+# axis to Section 0: freshness is "does the artifact land?";
+# observation is "is the consumer plumbed to read it yet?"
+# See feedback_observe_mode_unconditional_gates_govern_cutover.
+
+from loaders.observation_registry_loader import (  # noqa: E402
+    load_observation_registry,
+    summarize_by_phase,
+    summarize_by_state,
+)
+
+
+@st.cache_data(ttl=60)
+def _load_observation_summary() -> dict | None:
+    reg = load_observation_registry()
+    if reg is None:
+        return None
+    obs = reg["observations"]
+    return {
+        "total": len(obs),
+        "state_counts": summarize_by_state(obs),
+        "phase_counts": summarize_by_phase(obs),
+        "source_path": reg.get("_source_path", "<unknown>"),
+    }
+
+
+_obs_summary = _load_observation_summary()
+if _obs_summary is not None:
+    st.subheader("Active Observations")
+    _state = _obs_summary["state_counts"]
+    _phase = _obs_summary["phase_counts"]
+    _obs_cols = st.columns(7)
+    _obs_cols[0].metric("Total", _obs_summary["total"])
+    _obs_cols[1].metric("✅ always-on", _state["always-on"])
+    _obs_cols[2].metric("🟡 gated-on (soak)", _state["gated-on"])
+    _obs_cols[3].metric("⏸ gated-off", _state["gated-off"])
+    _obs_cols[4].metric("🧱 substrate", _phase["substrate"])
+    _obs_cols[5].metric("🔁 cutover", _phase["cutover"])
+    _obs_cols[6].metric("✅ promoted", _phase["promoted"])
+    st.caption(
+        "Declarative SoT for in-flight observe-mode rollouts. "
+        "Full per-entry detail at "
+        "[/Active_Observations](/Active_Observations). "
+        "SoT: `alpha-engine-config/private-docs/OBSERVATION_REGISTRY.yaml`."
+    )
+    st.divider()
+
+
 # ===========================================================================
 # Page body — Modules & Data
 # ===========================================================================
