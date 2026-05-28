@@ -246,6 +246,39 @@ def load_order_book_summary(date_str: str) -> dict | None:
     return download_s3_json(_research_bucket(), f"order_books/{date_str}/summary.json")
 
 
+@st.cache_data(ttl=_ttl("research"))
+def load_universe_archive(ticker: str) -> dict | None:
+    """Latest persisted rolling thesis for a ticker.
+
+    Reads ``archive/universe/{TICKER}/thesis.json`` (the rolling per-ticker
+    thesis the research arc overwrites each cycle — richer than the
+    ``thesis_summary`` snippet on signals.json). Returns the parsed dict, or
+    None if the ticker has no persisted archive yet (graceful per
+    feedback_no_silent_fails — the modal renders a "no archive yet" fallback
+    rather than an empty panel). TTL-cached (research TTL ~1 hr) — the
+    archive/universe/ prefix is one of the larger per-ticker stores.
+    """
+    if not ticker:
+        return None
+    return download_s3_json(
+        _research_bucket(), f"archive/universe/{ticker}/thesis.json"
+    )
+
+
+@st.cache_data(ttl=_ttl("trades"))
+def load_order_book_rationale() -> dict | None:
+    """Load the latest Order-Book Rationale (OBR) decision-chain artifact.
+
+    ``trades/order_book_rationale/latest.json``. The per-ticker decision
+    blocks live under ``considered`` (a list of records keyed by ``ticker``).
+    Returns the full dict; the modal indexes ``considered`` for the ticker
+    and renders the block only if present (OBR is an optional tie-in — the
+    list is empty on days with no order-book activity)."""
+    return download_s3_json(
+        _research_bucket(), "trades/order_book_rationale/latest.json"
+    )
+
+
 @st.cache_data(ttl=_ttl("trades"))
 def load_predictor_metrics() -> dict | None:
     """Load predictor/metrics/latest.json."""

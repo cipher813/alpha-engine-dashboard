@@ -1,4 +1,4 @@
-streamlit>=1.32
+streamlit>=1.40
 pandas>=2.0
 plotly>=5.18
 boto3>=1.34
