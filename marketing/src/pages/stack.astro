@@ -77,6 +77,10 @@ const sections: StackSection[] = [
         name: 'VectorBT',
         body: 'Historical portfolio simulation in the backtester.',
       },
+      {
+        name: 'SQLite',
+        body: 'Per-module local audit trails — `research.db` (signal history, rolling theses, macro snapshots) and `trades.db` (every order, fill, retry, rationale). Both backed up to S3 after each run; S3 is canonical, SQLite is the queryable working copy. Embedded over a hosted DB because the workload is single-writer, the queries are bounded, and embedded survives a network partition.',
+      },
     ],
   },
   {
@@ -111,6 +115,10 @@ const sections: StackSection[] = [
         name: 'CloudFormation',
         body: 'Infrastructure-as-Code for Step Functions, Lambda functions, IAM roles, EventBridge rules. Drift detector compares CloudFormation stamps against live AWS state weekly.',
       },
+      {
+        name: 'Telegram (over PagerDuty / Opsgenie)',
+        body: 'Dual-channel ops alerts (Telegram + SNS) via the `alpha_engine_lib.alerts.publish` primitive — every fail-loud surface posts to both channels independently, dedup-keyed at cadence-window granularity. Telegram delivers the operator-visible signal; SNS keeps the audit trail. PagerDuty-tier escalation is overkill for a single-operator system; the cost asymmetry is the design choice.',
+      },
     ],
   },
   {
@@ -121,8 +129,12 @@ const sections: StackSection[] = [
         body: 'Static-site generator for the apex marketing surface — zero JS shipped by default, fast TTFB, build-time SEO. The harness identity benefits from a marketing surface that loads as instantly as the instrument it describes.',
       },
       {
-        name: 'IBC (Interactive Brokers Gateway)',
-        body: 'Paper-account broker connection on the executor host. Hard runtime check refuses to connect to non-paper accounts (account ID must start with "D") — defense against accidental live-account wiring.',
+        name: 'Cloudflare (Pages + Access)',
+        body: 'Cloudflare Pages serves the apex marketing site; Cloudflare Access gates the private operator console at `console.nousergon.ai`. Zero-trust SSO without standing up a separate auth layer; the public live data console at `live.nousergon.ai` stays accessible without auth so the system is inspectable end-to-end.',
+      },
+      {
+        name: 'IB Gateway (gnzsnz Docker + TOTP)',
+        body: 'Paper-account broker connection runs in `gnzsnz/ib-gateway-docker` on the trading EC2 with TOTP-based 2FA (secret in AWS Secrets Manager). Docker isolates the Gateway\'s X-server requirement and survives session-reset edge cases that the local `IBC + Xvfb` setup hit mid-2026. Hard runtime check refuses to connect to non-paper accounts (account ID must start with "D") — defense against accidental live-account wiring.',
       },
     ],
   },
