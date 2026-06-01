@@ -14,7 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_predictor_training_state, load_production_health, load_signals_json, load_mode_history, load_feature_importance
+from loaders.s3_loader import load_predictions_json, load_predictor_metrics, load_predictor_training_state, load_production_health, load_signals_json, load_mode_history, load_feature_importance, load_hold_book_flag
 from loaders.db_loader import get_predictor_outcomes, canonicalize_predictor_outcomes
 from loaders.signal_loader import get_available_signal_dates
 from charts.predictor_chart import make_model_drift_chart, make_feature_importance_chart
@@ -29,6 +29,26 @@ _ACC_BASELINE = _TH["accuracy_baseline"]
 st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
 
 st.title("Predictor")
+
+# ---------------------------------------------------------------------------
+# Hold-book safeguard banner (2026-06-01) — if the executor suppressed the
+# optimizer rebalance because the predictor output_distribution_gate flagged
+# the batch "strongly biased", surface it prominently for operator review.
+# ---------------------------------------------------------------------------
+_hb = load_hold_book_flag()
+if _hb.get("held"):
+    _m = _hb.get("gate_metrics") or {}
+    st.error(
+        "🛑 **HOLD-BOOK SAFEGUARD FIRED** — the optimizer rebalance was "
+        f"**suppressed** for predictions dated **{_hb.get('predictions_date', '?')}** "
+        f"(run {_hb.get('run_date', '?')}); the current book was **held** rather "
+        "than rotated off a flagged model batch. Daemon hard-risk overrides "
+        "remained active. **Review before trusting the next rebalance.**\n\n"
+        f"- Failed check: `{_hb.get('failed_check', '?')}`\n"
+        f"- Reason: {_hb.get('reason', '—')}\n"
+        f"- direction_skew: {_m.get('direction_skew', '?')} "
+        f"(n_up={_m.get('n_up', '?')}, n_down={_m.get('n_down', '?')})"
+    )
 
 
 
@@ -78,6 +98,31 @@ _promoted = training_state.get("promoted")
 m3.metric("Promoted", "—" if _promoted is None else ("Yes" if _promoted else "No"))
 m4.metric("Training Samples", f"{_training_samples:,}")
 m5.metric("High-Confidence Today", metrics.get("n_high_confidence", 0))
+
+# ---------------------------------------------------------------------------
+# PROD vs latest-training disambiguation (2026-06-01) — answers "what model is
+# actually live, and did the latest training promote (or what's still
+# promoted)?". metrics.model_version = the version inference actually ran with
+# (the live/promoted weights); manifest (training_state) = the latest training
+# attempt + whether it was accepted. When promoted=False the live weights stay
+# at the PRIOR promoted version — the case operators must see clearly.
+# ---------------------------------------------------------------------------
+_prod_version = metrics.get("model_version", "—")        # what inference loaded = live/prod
+_trained_date = training_state.get("last_trained") or "—"
+if _promoted is True:
+    st.success(
+        f"✅ **PROD model (live): `{_prod_version}`** — the latest training "
+        f"({_trained_date}) was **PROMOTED**, so prod = latest training."
+    )
+elif _promoted is False:
+    st.warning(
+        f"⚠️ **PROD model (live): `{_prod_version}`** — the latest training "
+        f"({_trained_date}) was **NOT promoted**; production remains on the "
+        f"**prior promoted version** above. Review the promotion gate "
+        f"(`output_distribution_gate` + leak-free OOS IC below) for why."
+    )
+else:
+    st.info(f"**PROD model (live): `{_prod_version}`** — promotion state unknown (manifest unavailable).")
 
 # W1 (L4469, observe): the leak-free OOS meta IC — the trustworthy lens vs the
 # inflated in-sample IC. Populates from the first post-merge Saturday training
