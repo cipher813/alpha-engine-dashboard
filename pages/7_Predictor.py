@@ -30,11 +30,25 @@ st.set_page_config(page_title="Predictor — Alpha Engine", layout="wide")
 
 st.title("Predictor")
 
-# ---------------------------------------------------------------------------
-# Hold-book safeguard banner (2026-06-01) — if the executor suppressed the
-# optimizer rebalance because the predictor output_distribution_gate flagged
-# the batch "strongly biased", surface it prominently for operator review.
-# ---------------------------------------------------------------------------
+# Operator-critical state, loaded once up top. L4468 SSOT: training state reads
+# from the manifest (fresh every Saturday training), never latest.json's
+# weekend-stale training-mirror fields. latest.json remains the source for the
+# ROLLING/operational fields used in Model Health below.
+metrics = load_predictor_metrics()
+training_state = load_predictor_training_state()
+
+if not metrics:
+    st.error("No predictor metrics found. Is the predictor running?")
+    st.info("Expected at `s3://alpha-engine-research/predictor/metrics/latest.json`")
+    st.stop()
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PRODUCTION STATUS (top) — the operator's first questions: did the safeguard
+# hold the book, what model is live, and did the latest training promote? The
+# rest of this page is supporting detail (under review for trim, 2026-06-01).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# 1. Hold-book safeguard — did the executor suppress a rebalance off a flagged batch?
 _hb = load_hold_book_flag()
 if _hb.get("held"):
     _m = _hb.get("gate_metrics") or {}
@@ -50,25 +64,34 @@ if _hb.get("held"):
         f"(n_up={_m.get('n_up', '?')}, n_down={_m.get('n_down', '?')})"
     )
 
+# 2. PROD model + promotion status — what's live, and did the latest training
+#    promote? metrics.model_version = the version inference actually ran with
+#    (the live/promoted weights); manifest (training_state) = the latest training
+#    attempt + whether it was accepted. When promoted=False the live weights stay
+#    at the PRIOR promoted version — the case operators must see clearly.
+_promoted = training_state.get("promoted")
+_prod_version = metrics.get("model_version", "—")
+_trained_date = training_state.get("last_trained") or "—"
+if _promoted is True:
+    st.success(
+        f"✅ **PROD model (live): `{_prod_version}`** — the latest training "
+        f"({_trained_date}) was **PROMOTED**, so prod = latest training."
+    )
+elif _promoted is False:
+    st.warning(
+        f"⚠️ **PROD model (live): `{_prod_version}`** — the latest training "
+        f"({_trained_date}) was **NOT promoted**; production remains on the "
+        f"**prior promoted version**. Review the promotion gate "
+        f"(`output_distribution_gate` + leak-free OOS IC in Model Health) for why."
+    )
+else:
+    st.info(f"**PROD model (live): `{_prod_version}`** — promotion state unknown (manifest unavailable).")
 
+st.divider()
 
 # ---------------------------------------------------------------------------
 # Model health banner
 # ---------------------------------------------------------------------------
-
-metrics = load_predictor_metrics()
-# L4468 SSOT: training state (promoted / last_trained / leak-free OOS IC) reads
-# from the authoritative manifest (fresh every Saturday training), NOT from
-# latest.json's training-mirror fields (refreshed only by weekday inference, so
-# stale all weekend — the 2026-05-30 false "skill drought" read). latest.json is
-# still the source for the ROLLING/operational fields below (hit rate, ic_30d,
-# n_high_confidence, today's run).
-training_state = load_predictor_training_state()
-
-if not metrics:
-    st.error("No predictor metrics found. Is the predictor running?")
-    st.info("Expected at `s3://alpha-engine-research/predictor/metrics/latest.json`")
-    st.stop()
 
 hit_rate = metrics.get("hit_rate_30d_rolling", 0.0) or 0.0
 if hit_rate >= _MODEL_HEALTHY:
@@ -98,31 +121,6 @@ _promoted = training_state.get("promoted")
 m3.metric("Promoted", "—" if _promoted is None else ("Yes" if _promoted else "No"))
 m4.metric("Training Samples", f"{_training_samples:,}")
 m5.metric("High-Confidence Today", metrics.get("n_high_confidence", 0))
-
-# ---------------------------------------------------------------------------
-# PROD vs latest-training disambiguation (2026-06-01) — answers "what model is
-# actually live, and did the latest training promote (or what's still
-# promoted)?". metrics.model_version = the version inference actually ran with
-# (the live/promoted weights); manifest (training_state) = the latest training
-# attempt + whether it was accepted. When promoted=False the live weights stay
-# at the PRIOR promoted version — the case operators must see clearly.
-# ---------------------------------------------------------------------------
-_prod_version = metrics.get("model_version", "—")        # what inference loaded = live/prod
-_trained_date = training_state.get("last_trained") or "—"
-if _promoted is True:
-    st.success(
-        f"✅ **PROD model (live): `{_prod_version}`** — the latest training "
-        f"({_trained_date}) was **PROMOTED**, so prod = latest training."
-    )
-elif _promoted is False:
-    st.warning(
-        f"⚠️ **PROD model (live): `{_prod_version}`** — the latest training "
-        f"({_trained_date}) was **NOT promoted**; production remains on the "
-        f"**prior promoted version** above. Review the promotion gate "
-        f"(`output_distribution_gate` + leak-free OOS IC below) for why."
-    )
-else:
-    st.info(f"**PROD model (live): `{_prod_version}`** — promotion state unknown (manifest unavailable).")
 
 # W1 (L4469, observe): the leak-free OOS meta IC — the trustworthy lens vs the
 # inflated in-sample IC. Populates from the first post-merge Saturday training
