@@ -43,10 +43,11 @@ for s in "${SERVICES[@]}"; do
     systemctl is-active --quiet "$s" || problems+=("service down: $s")
 done
 
-# listening ports (mnemon/bun has no systemd unit here, so port is the probe)
+# listening ports — match ANY bind address: Streamlit binds 127.0.0.1:850x,
+# but mnemon (bun) binds *:8503, so an address-specific pattern false-alarms.
 listening=$(ss -tln 2>/dev/null)
 for p in "${PORTS[@]}"; do
-    echo "$listening" | grep -qE "127\.0\.0\.1:$p\b" || problems+=("port not listening: $p")
+    echo "$listening" | grep -qE ":$p\b" || problems+=("port not listening: $p")
 done
 
 # quiet on success — this is the common path
