@@ -384,6 +384,37 @@ def load_report_card(date_str: str | None = None) -> dict | None:
     return download_s3_json(bucket, f"evaluator/{date_str}/report_card.json")
 
 
+@st.cache_data(ttl=_ttl("signals"))
+def load_action_plan(date_str: str | None = None) -> dict | None:
+    """Load the Director's weekly action plan (Layer C advisory output).
+
+    Reads ``director/{date}/action_plan.json`` written by the
+    ``alpha-engine-evaluator-director`` Lambda (the final Saturday-pipeline
+    task, once ``DIRECTOR_ENABLED`` is on). ``date_str=None`` resolves the most
+    recent available plan. Returns the parsed ``DirectorWeeklyActionPlan`` dict
+    or None when no plan has been published yet (e.g. the Director is still
+    dormant pre-flip).
+    """
+    bucket = _research_bucket()
+    if date_str is None:
+        date_str = get_latest_prefix(bucket, "director/")
+        if date_str is None:
+            return None
+    return download_s3_json(bucket, f"director/{date_str}/action_plan.json")
+
+
+@st.cache_data(ttl=_ttl("signals"))
+def load_carryover_ledger() -> dict | None:
+    """Load the Director's carry-over ledger.
+
+    Reads the single, non-date-scoped object ``director/carryover_ledger.json``
+    — the upsert-by-id ledger the Director merges each week (the system-level
+    "reminders must be written down" surface). Returns ``{"updated": str,
+    "items": [...]}`` or None when no plan has ever run.
+    """
+    return download_s3_json(_research_bucket(), "director/carryover_ledger.json")
+
+
 def load_trades_full() -> pd.DataFrame | None:
     """Load trades_full.csv from the executor bucket."""
     cfg = load_config()
