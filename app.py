@@ -395,6 +395,7 @@ def _build_navigation():
             home,
             page("Report_Card.py", "Report Card", "📋"),
             page("Report_Card_Detail.py", "Report Card — Detail", "🔎"),
+            page("Director_Plan.py", "Director — Weekly Plan", "🧭"),
         ],
         "📈 Performance": [
             page("1_Portfolio.py", "Portfolio", "💼"),
