@@ -92,6 +92,27 @@ def test_load_universe_archive_key_and_empty_ticker():
         assert loader.load_universe_archive("") is None
 
 
+def test_load_company_names_parses_sec_map():
+    loader = _load_live_loader()
+    payload = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 789019, "ticker": "MSFT", "title": "MICROSOFT CORP"},
+        "2": {"cik_str": 1, "ticker": "", "title": "No Ticker"},  # skipped (no ticker)
+    }
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = payload
+    fake_resp.raise_for_status.return_value = None
+    with patch("requests.get", return_value=fake_resp):
+        names = loader.load_company_names()
+    assert names == {"AAPL": "Apple Inc.", "MSFT": "MICROSOFT CORP"}
+
+
+def test_load_company_names_failsoft_on_error():
+    loader = _load_live_loader()
+    with patch("requests.get", side_effect=RuntimeError("network down")):
+        assert loader.load_company_names() == {}
+
+
 def test_load_order_book_rationale_key():
     loader = _load_live_loader()
     captured = {}
@@ -123,6 +144,7 @@ def td():
     }
     stub.load_predictions_json.return_value = {"AAPL": {"predicted_direction": "UP"}}
     stub.load_universe_archive.return_value = {"key_catalyst": "earnings"}
+    stub.load_company_names.return_value = {"AAPL": "Apple Inc.", "MSFT": "Microsoft Corp"}
     return _load_ticker_detail(stub)
 
 
@@ -131,6 +153,27 @@ def test_fmt_pct(td):
     assert td._fmt_pct(-0.10) == "-10.0%"
     assert td._fmt_pct(None) == "—"
     assert td._fmt_pct("nan-ish") == "—"
+
+
+def test_fmt_pct_points_no_double_scaling(td):
+    # Snapshot *_pct fields are already in percent points — format must NOT
+    # multiply by 100 again (a +2.5% day must not render as +250%).
+    assert td._fmt_pct_points(2.5) == "+2.5%"
+    assert td._fmt_pct_points(-10.0) == "-10.0%"
+    assert td._fmt_pct_points(0.075) == "+0.1%"
+    assert td._fmt_pct_points(None) == "—"
+    assert td._fmt_pct_points("nan-ish") == "—"
+
+
+def test_company_name_fallback_chain(td):
+    # 1) position-supplied name wins
+    assert td._company_name("AAPL", {"name": "Apple (pos)"}, {}) == "Apple (pos)"
+    # 2) signals name next
+    assert td._company_name("AAPL", {}, {"name": "Apple (sig)"}) == "Apple (sig)"
+    # 3) SEC ticker→name map (case-insensitive)
+    assert td._company_name("aapl", {}, {}) == "Apple Inc."
+    # 4) unknown ticker → None (caller renders bare ticker)
+    assert td._company_name("ZZZZ", {}, {}) is None
 
 
 def test_position_info_dict_list_missing(td):

@@ -116,6 +116,46 @@ def load_trades_full() -> pd.DataFrame | None:
     return download_s3_csv(_trades_bucket(), key)
 
 
+@st.cache_data(ttl=86400)
+def load_company_names() -> dict[str, str]:
+    """Return ``{TICKER: company_name}`` from SEC ``company_tickers.json``.
+
+    Same institutional source the research RAG pipeline uses
+    (`alpha-engine-research` ``run_news_pipeline._load_ticker_name_map``).
+    Names are near-static so a 24h TTL is plenty. `requests` is always
+    present (streamlit depends on it).
+
+    Fail-soft: any fetch error returns ``{}`` and the caller renders the
+    bare ticker — the failure is WARN-logged, never a silent swallow that
+    masquerades as "no names exist" (feedback_no_silent_fails: the recording
+    surface for this best-effort display lookup is the WARN log).
+    """
+    import requests
+
+    try:
+        resp = requests.get(
+            "https://www.sec.gov/files/company_tickers.json",
+            headers={"User-Agent": "AlphaEngine dashboard@nousergon.ai"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except Exception as e:  # best-effort display label — WARN + fall back to ticker
+        logger.warning("load_company_names: SEC company_tickers fetch failed: %s", e)
+        return {}
+
+    out: dict[str, str] = {}
+    try:
+        for entry in resp.json().values():
+            ticker = (entry.get("ticker") or "").upper()
+            name = entry.get("title") or ""
+            if ticker and name:
+                out[ticker] = name
+    except (ValueError, AttributeError) as e:
+        logger.warning("load_company_names: malformed SEC payload: %s", e)
+        return {}
+    return out
+
+
 @st.cache_data(ttl=_ttl("research"))
 def load_population_json() -> dict | None:
     """Load population/latest.json from the research bucket."""
