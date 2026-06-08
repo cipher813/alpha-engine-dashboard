@@ -25,6 +25,7 @@ import pandas as pd
 import streamlit as st
 
 from loaders.s3_loader import (
+    load_company_names,
     load_latest_signals,
     load_order_book_rationale,
     load_predictions_json,
@@ -51,10 +52,31 @@ def _obr_block(ticker: str) -> dict | None:
 
 
 def _fmt_pct(v) -> str:
+    """Format a FRACTION as a percent (0.025 → '+2.5%'). Use for fields stored
+    as decimals — price_target_upside, predicted_alpha."""
     try:
         return f"{float(v) * 100:+.1f}%"
     except (TypeError, ValueError):
         return "—"
+
+
+def _fmt_pct_points(v) -> str:
+    """Format a value ALREADY in percent points (2.5 → '+2.5%').
+
+    `eod_reconcile` writes `daily_return_pct` and `alpha_contribution_pct`
+    pre-scaled by ×100 (e.g. `(price/prior - 1) * 100`). Running those through
+    `_fmt_pct` double-scaled them (a +2.5% day rendered as '+250.0%') — this
+    formatter is the correct one for the snapshot's `*_pct` fields."""
+    try:
+        return f"{float(v):+.1f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _company_name(ticker: str, pos: dict, sig: dict) -> str | None:
+    """Best-effort full company name: position/signals first (free), then the
+    SEC ticker→name map (TTL-cached). Falls back to None → bare ticker."""
+    return pos.get("name") or sig.get("name") or load_company_names().get(ticker.upper())
 
 
 def _position_info(ticker: str, positions_snapshot) -> dict:
@@ -82,7 +104,7 @@ def _render(ticker: str, positions_snapshot, trades_df: "pd.DataFrame | None") -
     pred = (load_predictions_json() or {}).get(ticker) or {}
 
     # ── Header ───────────────────────────────────────────────────────────
-    name = pos.get("name") or sig.get("name")  # best-effort; not always present
+    name = _company_name(ticker, pos, sig)
     sector = pos.get("sector") or sig.get("sector") or "—"
     header = f"### {ticker}" + (f" — {name}" if name else "")
     st.markdown(header)
@@ -102,9 +124,10 @@ def _render(ticker: str, positions_snapshot, trades_df: "pd.DataFrame | None") -
         c2.metric("Avg cost", f"${pos.get('avg_cost'):,.2f}" if isinstance(pos.get("avg_cost"), (int, float)) else "—")
         upnl = pos.get("unrealized_pnl")
         c2.metric("Unrealized P&L", f"${upnl:,.0f}" if isinstance(upnl, (int, float)) else "—")
-        c3.metric("Day return", _fmt_pct(pos.get("daily_return_pct")))
-        alpha_pct = pos.get("alpha_contribution_pct")
-        c3.metric("Alpha contrib", _fmt_pct(alpha_pct))
+        # daily_return_pct / alpha_contribution_pct are already in percent points
+        # (eod_reconcile pre-scales by ×100) — format WITHOUT a second ×100.
+        c3.metric("Day return", _fmt_pct_points(pos.get("daily_return_pct")))
+        c3.metric("Alpha contrib", _fmt_pct_points(pos.get("alpha_contribution_pct")))
 
     # ── Rationale ────────────────────────────────────────────────────────
     st.markdown("#### Rationale")
