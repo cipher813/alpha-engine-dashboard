@@ -125,8 +125,8 @@ def _render(ticker: str, positions_snapshot, trades_df: "pd.DataFrame | None") -
         c2.metric("Avg cost", f"${pos.get('avg_cost'):,.2f}" if isinstance(pos.get("avg_cost"), (int, float)) else "—")
         upnl = pos.get("unrealized_pnl")
         c2.metric("Unrealized P&L", f"${upnl:,.0f}" if isinstance(upnl, (int, float)) else "—")
-        # daily_return_pct / alpha_contribution_pct are already in percent points
-        # (eod_reconcile pre-scales by ×100) — format WITHOUT a second ×100.
+        # daily_return_pct is already in percent points (eod_reconcile
+        # pre-scales by ×100) — format WITHOUT a second ×100.
         #
         # Day return: prefer a live 15-min-delayed quote (today's % change vs
         # prior close) so the modal reflects TODAY, not the last EOD snapshot
@@ -144,9 +144,10 @@ def _render(ticker: str, positions_snapshot, trades_df: "pd.DataFrame | None") -
                 else "Last closed session (from the EOD snapshot) — live quote unavailable."
             ),
         )
-        # Alpha contrib stays the EOD attribution figure (portfolio-weighted
-        # excess vs SPY) — an inherently end-of-session number, not live.
-        c3.metric("Alpha contrib", _fmt_pct_points(pos.get("alpha_contribution_pct")))
+        # Alpha contrib (portfolio-weighted excess vs SPY) deliberately NOT
+        # rendered on this public surface — vs-SPY figures are console-only
+        # until the graduation trigger fires (L4570f disclosure line:
+        # per-position day-change OK, any vs-SPY figure is a leak).
 
     # ── Rationale ────────────────────────────────────────────────────────
     st.markdown("#### Rationale")

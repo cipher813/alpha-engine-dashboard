@@ -51,4 +51,14 @@ pg = st.navigation([
     # re-enable once the system beats SPY (then it becomes a credibility flex).
     # st.Page(os.path.join(_HERE, "pages", "performance.py"), title="Performance"),
 ])
+
+# Link-funnel (public-presence role matrix): this surface is the live
+# proof-of-life tier; the narrative (what the system is, how it's designed)
+# is owned by the Astro apex — link out rather than re-tell it here.
+with st.sidebar:
+    st.caption(
+        "What this system is and how it's designed: "
+        "[nousergon.ai](https://nousergon.ai)"
+    )
+
 pg.run()
