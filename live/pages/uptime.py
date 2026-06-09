@@ -18,8 +18,8 @@ _UPTIME_WINDOW_SESSIONS = 20
 
 st.title("Uptime")
 st.caption(
-    "Phase 2 primary KPI. Tracks pipeline reliability — \"is the system "
-    "running?\" — across the most recent trading sessions."
+    "Pipeline reliability — \"is the system running?\" — across the most "
+    "recent trading sessions."
 )
 
 uptime_history = load_uptime_history(max_sessions=_UPTIME_WINDOW_SESSIONS)
