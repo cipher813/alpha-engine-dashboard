@@ -6,21 +6,15 @@ import '../styles/global.css';
 interface Props {
   title?: string;
   description?: string;
-  /**
-   * Optional JSON-LD structured data injected into <head>. The layout
-   * defaults to a WebSite + Organization graph for the apex site; pages
-   * that need page-specific schema (e.g. Article, AboutPage, BreadcrumbList)
-   * can pass their own object to override.
-   */
+  /** Optional JSON-LD override; defaults to the Organization + WebSite graph. */
   jsonLd?: Record<string, unknown> | Record<string, unknown>[];
 }
 
-const SITE_URL = 'https://crucible.nousergon.ai';
-const BRAND_URL = 'https://nousergon.ai';
+const SITE_URL = 'https://nousergon.ai';
 
 const {
-  title = 'Crucible — a harness for rigorous AI/ML experiments in finance · Nous Ergon',
-  description = 'Crucible is a harness for rigorous AI/ML experiments in finance. An equity research-and-trading system — multi-agent research, machine-learning prediction, risk-gated execution — instrumented end-to-end from signal to P&L. A Nous Ergon product.',
+  title = 'Nous Ergon — an applied AI lab. Intelligence at work.',
+  description = 'Nous Ergon is an applied AI lab. Products: Crucible, a harness for rigorous AI/ML experiments in finance; Metron, portfolio analytics; and open-source tools.',
   jsonLd,
 } = Astro.props;
 
@@ -31,9 +25,9 @@ const defaultJsonLd = {
   '@graph': [
     {
       '@type': 'Organization',
-      '@id': `${BRAND_URL}#organization`,
+      '@id': `${SITE_URL}#organization`,
       name: 'Nous Ergon',
-      url: BRAND_URL,
+      url: SITE_URL,
       founder: {
         '@type': 'Person',
         name: 'Brian McMahon',
@@ -45,9 +39,9 @@ const defaultJsonLd = {
       '@type': 'WebSite',
       '@id': `${SITE_URL}#website`,
       url: SITE_URL,
-      name: 'Crucible',
+      name: 'Nous Ergon',
       description,
-      publisher: { '@id': `${BRAND_URL}#organization` },
+      publisher: { '@id': `${SITE_URL}#organization` },
       inLanguage: 'en-US',
     },
   ],
@@ -71,7 +65,7 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Crucible · Nous Ergon" />
+    <meta property="og:site_name" content="Nous Ergon" />
     <meta property="og:url" content={canonicalUrl} />
     <meta name="twitter:card" content="summary_large_image" />
     <title>{title}</title>
@@ -88,17 +82,9 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
       Skip to main content
     </a>
 
-    <header class="relative pt-8 md:pt-10 pb-6">
-      <a
-        href="https://console.nousergon.ai/"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="absolute top-4 right-4 md:top-5 md:right-6 text-[11px] uppercase tracking-[0.18em] text-zinc-500 hover:text-zinc-200 transition"
-      >
-        Console &rarr;
-      </a>
+    <header class="pt-8 md:pt-10 pb-6">
       <div class="max-w-5xl mx-auto px-6 flex flex-col items-center">
-        <a href="https://nousergon.ai/" class="block" aria-label="Nous Ergon — Intelligence at work, lab home">
+        <a href="/" class="block" aria-label="Nous Ergon — Intelligence at work, home">
           <Image
             src={nousErgonLogo}
             alt="Nous Ergon — Intelligence at work"
@@ -109,26 +95,12 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
             decoding="sync"
           />
         </a>
-        <a href="/" class="mt-4 text-lg md:text-xl font-semibold tracking-[0.3em] uppercase text-zinc-100 hover:text-white transition" aria-label="Crucible — experiment harness, home">Crucible</a>
-        <div class="mt-1 text-[11px] uppercase tracking-[0.18em] text-zinc-500">Experiment harness</div>
         <nav
           class="mt-6 flex flex-wrap items-center justify-center gap-x-7 gap-y-2 text-[13px] tracking-[0.06em] uppercase text-zinc-400"
           aria-label="Primary"
         >
           <a href="/" class="hover:text-zinc-100 transition">Home</a>
           <a href="/about" class="hover:text-zinc-100 transition">About</a>
-          <a href="/architecture" class="hover:text-zinc-100 transition">Architecture</a>
-          <a href="/stack" class="hover:text-zinc-100 transition">Stack</a>
-          <a href="/retros/" class="hover:text-zinc-100 transition">Retros</a>
-          <a href="/blog/" class="hover:text-zinc-100 transition">Blog</a>
-          <a
-            href="https://live.nousergon.ai/"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="hover:text-zinc-100 transition"
-          >
-            Dashboard &rarr;
-          </a>
         </nav>
       </div>
     </header>
@@ -142,13 +114,7 @@ const resolvedJsonLd = jsonLd ?? defaultJsonLd;
         class="max-w-5xl mx-auto px-6 py-8 text-xs text-zinc-500 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
       >
         <div>
-          <a
-            href="https://nousergon.ai/"
-            class="text-zinc-400 hover:text-zinc-100 transition"
-          >
-            Nous Ergon
-          </a>
-          &mdash; an applied AI lab
+          Nous Ergon &mdash; an applied AI lab
           &middot;
           <a
             href="https://github.com/cipher813"

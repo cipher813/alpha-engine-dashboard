@@ -23,7 +23,7 @@ const systemDiagram = `flowchart LR
     Executor[Executor<br/>risk-gated sizing + intraday daemon]
     Backtester[Backtester<br/>eval + parity + 4 config optimizers]
     Evaluator[Evaluator<br/>7-tile report card<br/>+ Director · advisory, approval-gated]
-    Dashboard[Dashboard<br/>nousergon.ai + console.nousergon.ai]
+    Dashboard[Dashboard<br/>live + console]
 
     Data --> Research
     Data --> Predictor
@@ -130,7 +130,7 @@ const feedbackDiagram = `flowchart LR
 ---
 
 <Base
-  title="Architecture — Nous Ergon"
+  title="Architecture — Crucible"
   description="System architecture: seven modules, three Step Function pipelines on a fixed cadence, a weekly parameter feedback loop."
 >
   <section class="max-w-4xl mx-auto px-6 pt-12 pb-16">
