@@ -1,6 +1,6 @@
-# marketing/ — Nous Ergon apex static site
+# marketing/ — Crucible product site
 
-Source for `nousergon.ai` (the public-facing marketing surface). Lives alongside
+Source for `crucible.nousergon.ai` (the Crucible experiment-harness product site; the apex lab landing lives in `marketing-apex/`). Lives alongside
 the Streamlit live console at `live/`; the two surfaces share this repo but ship
 through different deploy paths.
 

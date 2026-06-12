@@ -1,0 +1,94 @@
+---
+import metronLogo from '../assets/nous-ergon-metron-logo.webp';
+import '../styles/global.css';
+
+const SITE_URL = 'https://metron.nousergon.ai';
+const title = 'Metron — portfolio analytics · Nous Ergon';
+const description =
+  'Metron is portfolio analytics from Nous Ergon: positions, performance, risk, attribution, and tax views across brokers, accounts, and currencies. Coming soon.';
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'Organization',
+      '@id': 'https://nousergon.ai#organization',
+      name: 'Nous Ergon',
+      url: 'https://nousergon.ai',
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${SITE_URL}#website`,
+      url: SITE_URL,
+      name: 'Metron',
+      description,
+      publisher: { '@id': 'https://nousergon.ai#organization' },
+      inLanguage: 'en-US',
+    },
+  ],
+};
+---
+
+<!doctype html>
+<html lang="en" class="bg-black text-zinc-200 antialiased">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/favicon-512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="canonical" href={SITE_URL} />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Metron · Nous Ergon" />
+    <meta property="og:url" content={SITE_URL} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>{title}</title>
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body class="min-h-screen flex flex-col font-sans">
+    <main class="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
+      <!-- Lossless asset via plain <img> — masthead assets must reach the
+           browser byte-exact (lossy re-encode bands dark gradients). -->
+      <img
+        src={metronLogo.src}
+        width={metronLogo.width}
+        height={metronLogo.height}
+        alt="Nous Ergon — Metron"
+        class="w-full max-w-[400px] h-auto"
+        loading="eager"
+        decoding="sync"
+        fetchpriority="high"
+      />
+      <p class="mt-8 text-sm md:text-base text-zinc-400 leading-relaxed max-w-md">
+        Portfolio analytics &mdash; positions, performance, risk, attribution,
+        and tax views across brokers, accounts, and currencies.
+      </p>
+      <p class="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-sky-400">
+        Coming soon
+      </p>
+    </main>
+
+    <footer class="border-t border-white/10">
+      <div
+        class="max-w-5xl mx-auto px-6 py-8 text-xs text-zinc-500 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+      >
+        <div>
+          <a href="https://nousergon.ai/" class="text-zinc-400 hover:text-zinc-100 transition">
+            Nous Ergon
+          </a>
+          &mdash; an applied AI lab
+          &middot;
+          <a href="mailto:brian@nousergon.ai" class="text-zinc-400 hover:text-zinc-100 transition">
+            brian@nousergon.ai
+          </a>
+        </div>
+        <div class="text-zinc-600">&nu;&omicron;&upsilon;&sigmaf; &epsilon;&rho;&gamma;&omicron;&nu;</div>
+      </div>
+    </footer>
+  </body>
+</html>

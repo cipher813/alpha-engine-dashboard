@@ -12,7 +12,7 @@ export default defineConfig({
   // `site` is the canonical origin for absolute URLs in sitemap, canonical
   // <link> tags, and OG meta. Required for @astrojs/sitemap to emit
   // sitemap-index.xml.
-  site: 'https://crucible.nousergon.ai',
+  site: 'https://nousergon.ai',
 
   vite: {
     plugins: [tailwindcss()],
