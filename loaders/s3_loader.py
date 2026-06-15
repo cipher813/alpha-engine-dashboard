@@ -627,40 +627,61 @@ def load_executor_params_history() -> list[dict]:
 
 @st.cache_data(ttl=_ttl("research"))
 def load_optimizer_risk_history() -> list[dict]:
-    """Return optimizer_risk_history records sorted oldest → newest.
+    """Return one flat optimizer risk-posture record per trading day, sorted
+    oldest → newest, sourced from the DAILY optimizer shadow log.
 
-    Reads `config/optimizer_risk_history/{run_id}.json` — written by the
-    backtester (`alpha-engine-backtester/optimizer/optimizer_risk_history.py`)
-    on each run that produces a covariance-estimator sweep. Each record is a
-    flat snapshot of the portfolio optimizer's risk-tolerance levers
-    (risk_aversion, tcost_bps, covariance_shrinkage, sigma_horizon_days,
-    alpha_uncertainty_penalty, turnover/sector caps, …) plus the selected
-    cell's risk metrics (sortino / psr / cvar_95 / max_drawdown /
-    tracking_error_ann / mean_active_share / turnover_one_way_ann / …).
+    Reads `predictor/optimizer_shadow/{date}.json` — written every weekday by
+    the executor's morning planner (`alpha-engine/executor/optimizer_shadow.py`)
+    and the definitive record of what shaped the live book that day. Each record
+    flattens:
 
-    The `latest.json` sidecar is skipped (it duplicates the newest dated
-    record). Excludes the empty/absent case gracefully (returns []).
+      • `optimizer_cfg` → the DEPLOYED risk-tolerance levers actually used
+        (risk_aversion, tcost_bps, covariance_shrinkage, sigma_horizon_days,
+        ewma_lambda_decay, alpha_uncertainty_penalty, vol_target_annual,
+        max_daily_turnover, max_sector_pct, cash_sleeve_pct, …). These move the
+        moment the backtester's MVO tuner promotes a new value to
+        `config/portfolio_optimizer.json` — unlike the static module defaults.
+      • `diagnostics` → the live book's realized optimizer risk metrics
+        (portfolio_vol_ann, active_share_vs_spy, turnover_one_way,
+        expected_alpha, n_active_positions, …).
+      • top-level `run_date` / `portfolio_nav` / `n_tickers` / `shadow_status`.
+
+    Skips the `latest.json` sidecar and `replays/` re-runs. Returns [] on the
+    empty/absent case.
     """
     bucket = _research_bucket()
-    prefix = f"{_CONFIG_PREFIX}/optimizer_risk_history/"
+    prefix = "predictor/optimizer_shadow/"
     client = get_s3_client()
     try:
         resp = client.list_objects_v2(Bucket=bucket, Prefix=prefix)
     except Exception as e:
-        logger.warning("list optimizer_risk_history failed: %s", e)
+        logger.warning("list optimizer_shadow failed: %s", e)
         _record_s3_error(bucket, prefix, type(e).__name__, str(e))
         return []
 
     keys = sorted(
         obj["Key"]
         for obj in resp.get("Contents", [])
-        if obj["Key"].endswith(".json") and not obj["Key"].endswith("/latest.json")
+        if obj["Key"].endswith(".json")
+        and not obj["Key"].endswith("/latest.json")
+        and "/replays/" not in obj["Key"]
     )
     history: list[dict] = []
     for key in keys:
         data = _fetch_s3_json(bucket, key)
-        if isinstance(data, dict):
-            history.append(data)
+        if not isinstance(data, dict):
+            continue
+        cfg = data.get("optimizer_cfg") or {}
+        diag = data.get("diagnostics") or {}
+        rec = {
+            "run_date": data.get("run_date"),
+            "shadow_status": data.get("shadow_status"),
+            "portfolio_nav": data.get("portfolio_nav"),
+            "n_tickers": data.get("n_tickers"),
+            **{k: cfg.get(k) for k in cfg},
+            **{k: diag.get(k) for k in diag},
+        }
+        history.append(rec)
     return history
 
 
