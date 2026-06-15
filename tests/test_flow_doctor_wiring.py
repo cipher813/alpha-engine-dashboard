@@ -66,7 +66,7 @@ def temp_flow_doctor_yaml(tmp_path):
     db_path = tmp_path / "flow_doctor_test.db"
     yaml_path.write_text(
         f"flow_name: dashboard-test\n"
-        f"repo: cipher813/alpha-engine-dashboard\n"
+        f"repo: nousergon/crucible-dashboard\n"
         f"owner: \"@brianmcmahon\"\n"
         f"notify:\n"
         f"  - type: email\n"
@@ -140,7 +140,7 @@ class TestFlowDoctorYamlSchema:
             assert (
                 f"\n{key}:" in "\n" + text
             ), f"missing top-level key: {key}"
-        assert "repo: cipher813/alpha-engine-dashboard" in text
+        assert "repo: nousergon/crucible-dashboard" in text
 
     def test_yaml_has_email_notify_channel(self):
         text = self._read_yaml_text()

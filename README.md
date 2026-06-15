@@ -49,10 +49,10 @@ This repo is **public**. Bucket names + email recipients in `config.yaml` are gi
 | Module | Repo |
 |---|---|
 | Executor | [`alpha-engine`](https://github.com/nousergon/crucible-executor) |
-| Data | [`alpha-engine-data`](https://github.com/cipher813/alpha-engine-data) |
-| Research | [`alpha-engine-research`](https://github.com/cipher813/alpha-engine-research) |
-| Predictor | [`alpha-engine-predictor`](https://github.com/cipher813/alpha-engine-predictor) |
-| Backtester | [`alpha-engine-backtester`](https://github.com/cipher813/alpha-engine-backtester) |
+| Data | [`alpha-engine-data`](https://github.com/nousergon/nousergon-data) |
+| Research | [`alpha-engine-research`](https://github.com/nousergon/crucible-research) |
+| Predictor | [`alpha-engine-predictor`](https://github.com/nousergon/crucible-predictor) |
+| Backtester | [`alpha-engine-backtester`](https://github.com/nousergon/crucible-backtester) |
 | Library | [`alpha-engine-lib`](https://github.com/nousergon/nousergon-lib) |
 | Docs | [`alpha-engine-docs`](https://github.com/nousergon/nousergon-docs) |
 
