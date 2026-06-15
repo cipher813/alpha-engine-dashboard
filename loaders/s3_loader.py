@@ -1251,3 +1251,67 @@ def load_llm_cost_parquets(n_recent: int = 12) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return _drop_implausible_cost_rows(pd.concat(frames, ignore_index=True))
+
+
+# ---------------------------------------------------------------------------
+# Daily News — raw per-article feed (data/news_articles_daily/)
+# ---------------------------------------------------------------------------
+
+_NEWS_ARTICLES_PREFIX = "data/news_articles_daily/"
+
+
+@st.cache_data(ttl=_ttl("signals"))
+def list_news_article_runs(n_recent: int = 45) -> list[dict]:
+    """List available daily raw-article runs, newest date first.
+
+    Producer: ``alpha-engine-data`` weekday ``daily_news`` step, which
+    writes ``data/news_articles_daily/{run_id}_articles.parquet`` (run_id =
+    ``YYMMDDHHMM``) for the held + tracked universe. The run_id encodes the
+    UTC run date, which matches the parquet's ``aggregate_date``.
+
+    Returns ``[{"date": "YYYY-MM-DD", "run_id": str, "key": str}, ...]`` with
+    ONE entry per date (the latest run that day), capped to ``n_recent``.
+    Empty list on any failure / pre-deploy → the page renders a graceful
+    empty notice.
+    """
+    bucket = _research_bucket()
+    by_date: dict[str, tuple[str, str]] = {}  # date → (run_id, key); newest run wins
+    try:
+        client = get_s3_client()
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=_NEWS_ARTICLES_PREFIX):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key", "")
+                if not key.endswith("_articles.parquet"):
+                    continue
+                run_id = key.rsplit("/", 1)[-1].replace("_articles.parquet", "")
+                if len(run_id) != 10 or not run_id.isdigit():
+                    continue
+                date_str = f"20{run_id[0:2]}-{run_id[2:4]}-{run_id[4:6]}"
+                prev = by_date.get(date_str)
+                if prev is None or run_id > prev[0]:
+                    by_date[date_str] = (run_id, key)
+    except Exception as e:
+        logger.error("Failed to list news article runs %s/%s: %s",
+                     bucket, _NEWS_ARTICLES_PREFIX, e)
+        _record_s3_error(bucket, _NEWS_ARTICLES_PREFIX, type(e).__name__, str(e))
+        return []
+
+    runs = [{"date": d, "run_id": v[0], "key": v[1]} for d, v in by_date.items()]
+    runs.sort(key=lambda r: r["date"], reverse=True)
+    return runs[:n_recent]
+
+
+@st.cache_data(ttl=_ttl("signals"))
+def load_news_articles(key: str) -> pd.DataFrame:
+    """Load one daily raw-article parquet by S3 key. Returns an empty
+    DataFrame on missing key / parse failure (page renders empty notice)."""
+    raw = _s3_get_object(_research_bucket(), key)
+    if raw is None:
+        return pd.DataFrame()
+    try:
+        return pd.read_parquet(io.BytesIO(raw))
+    except Exception as e:
+        logger.warning("news articles parquet parse failed for %s: %s", key, e)
+        _record_s3_error(_research_bucket(), key, "ParquetParseError", str(e))
+        return pd.DataFrame()
