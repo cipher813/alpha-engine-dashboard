@@ -1,5 +1,5 @@
 flow_name: dashboard
-repo: cipher813/alpha-engine-dashboard
+repo: nousergon/crucible-dashboard
 owner: "@brianmcmahon"
 notify:
   - type: email
@@ -9,7 +9,7 @@ notify:
     smtp_port: 587
     smtp_password: ${GMAIL_APP_PASSWORD}
   - type: github
-    repo: cipher813/alpha-engine-dashboard
+    repo: nousergon/crucible-dashboard
     token: ${FLOW_DOCTOR_GITHUB_TOKEN}
   - type: s3
     bucket: alpha-engine-research
