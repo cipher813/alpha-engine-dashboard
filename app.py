@@ -426,6 +426,7 @@ def _build_navigation():
         ],
         "🤖 Predictor": [
             page("7_Predictor.py", "Predictor", "🤖"),
+            page("35_Model_Zoo.py", "Model Zoo", "🦓"),
             page("15_Regime.py", "Regime", "🌐"),
             page("13_Feature_Store.py", "Feature Store", "🗃"),
             page("18_Predictor_Briefing_Archive.py", "Predictor Briefing (archive)", "📨"),
