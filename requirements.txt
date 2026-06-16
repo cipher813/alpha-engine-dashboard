@@ -25,4 +25,8 @@ yfinance>=0.2.40
 # v0.57.1 (2026-06-09): pipeline_status.registry gains the ModelZooRotation
 # (L4544/L4571) + LibPinDriftCheck (L4517) + RunDailyNews SF states (+ their
 # WaitFor* companions) — clears the page-25 "Registry drift" cells for them.
-alpha-engine-lib[flow_doctor] @ git+https://github.com/nousergon/nousergon-lib@v0.59.2
+# v0.59.6 (2026-06-16): pipeline_status.registry gains the config#1083 model-zoo
+# fan-out states (ResolveZooSpecs / TrainSpecDispatch / ModelZooSelect /
+# PublishModelZooFailureImmediate) — clears the remaining page-25 drift cells
+# (config#1115).
+alpha-engine-lib[flow_doctor] @ git+https://github.com/nousergon/nousergon-lib@v0.59.6
