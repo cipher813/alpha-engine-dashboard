@@ -1048,6 +1048,51 @@ def list_model_zoo_leaderboard_dates() -> list[str]:
     return list_s3_prefixes(_research_bucket(), _MODEL_ZOO_LEADERBOARD_PREFIX)
 
 
+@st.cache_data(ttl=_ttl("research"), show_spinner=False)
+def load_model_zoo_history(limit: int = 26) -> list[dict]:
+    """Compact per-cycle promotion summary across the leaderboard archive, newest
+    first — the multi-week view the Model Zoo console renders as the promotion
+    trajectory. Walks the most recent ``limit`` leaderboards and extracts, per
+    cycle: mode, baseline IC, winner IC, margin, promoted (version + kind),
+    reverted_from, candidate/eligible counts, PBO, and the champion realized-edge
+    "chasing noise" verdict. [] when no rotations have run yet.
+    """
+    dates = list_model_zoo_leaderboard_dates()
+    if not dates:
+        return []
+    rows: list[dict] = []
+    for d in sorted(dates, reverse=True)[:limit]:
+        lb = load_model_zoo_leaderboard(d)
+        if not isinstance(lb, dict) or not lb:
+            continue
+        cands = lb.get("candidates") or []
+        winner_id = lb.get("winner_version_id")
+        winner_ic = next(
+            (c.get("cpcv_mean_ic") for c in cands
+             if isinstance(c, dict) and c.get("version_id") == winner_id),
+            None,
+        )
+        pbo = lb.get("selection_pbo") or {}
+        monitor = lb.get("champion_realized_monitor") or {}
+        rows.append({
+            "date": lb.get("date", d),
+            "mode": lb.get("mode"),
+            "baseline_ic": lb.get("promotion_baseline_ic"),
+            "baseline_source": lb.get("promotion_baseline_source"),
+            "winner_ic": winner_ic,
+            "margin": lb.get("margin"),
+            "promoted": lb.get("promoted"),
+            "promoted_kind": lb.get("promoted_kind"),
+            "reverted_from": lb.get("reverted_from"),
+            "n_candidates": len(cands),
+            "n_eligible": sum(1 for c in cands if isinstance(c, dict) and c.get("eligible")),
+            "pbo": pbo.get("pbo"),
+            "pbo_pass": pbo.get("pbo_pass"),
+            "chasing_noise": monitor.get("chasing_noise"),
+        })
+    return rows
+
+
 def load_hold_book_flag() -> dict:
     """Load the executor hold-book flag (`executor/hold_book_flags/latest.json`).
 
