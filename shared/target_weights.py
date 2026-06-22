@@ -1,12 +1,22 @@
 """Optimizer target-weight time-series matrix for the order-book rationale view.
 
 Pure data transform — pivots the per-ticker ``optimizer.target_weight``
-field across a window of order-book rationale artifacts (one per trading
-day) into a ``Ticker × trading-day`` matrix of target % of NAV. Consumed
+field across a window of order-book rationale artifacts (one per session)
+into a ``Ticker × calendar-day`` matrix of target % of NAV. Consumed
 by ``views/16_Order_Book_Rationale.py`` to answer "how are the optimizer
 holdings targets drifting over time?". Extracted to ``shared/`` so the
 pivot/filter math is unit-testable without importing the Streamlit page
 module (mirrors ``shared/reconciliation.py``).
+
+Columns are keyed on ``calendar_date`` — the day the order book is FOR —
+NOT the backward-looking ``trading_day`` (the last-closed session whose
+signals/predictions fed the book). The order book is a forward-looking
+intraday operator surface, so it follows the same convention as the
+page's headline ``_label`` (alpha-engine-docs DATE_CONVENTIONS.md). Keying
+on ``trading_day`` made the newest column lag the calendar — e.g. a Monday
+run after a Friday holiday carried ``trading_day`` = the prior Thursday,
+so the chart looked stale ("hasn't updated since 6/18") even though it had
+just incorporated that day's fresh run.
 
 Source field: ``tickers[].optimizer.target_weight`` (fraction of NAV),
 produced by ``alpha-engine`` schema ≥ 1.1.0 on each daily rationale
@@ -27,8 +37,14 @@ import pandas as pd
 
 
 def _day_key(payload: dict) -> str | None:
-    """Trading-day key for a rationale payload (calendar fallback)."""
-    return payload.get("trading_day") or payload.get("calendar_date")
+    """Calendar-day key for a rationale payload (the day the book is FOR).
+
+    Forward-looking operator surface → key on ``calendar_date``, falling
+    back to ``trading_day`` only for legacy/pre-schema artifacts that
+    predate the dual-tracked dates. See module docstring + the page's
+    ``_label`` for why calendar_date is the correct headline here.
+    """
+    return payload.get("calendar_date") or payload.get("trading_day")
 
 
 def _is_book_or_forming(rec: dict) -> bool:
@@ -47,11 +63,11 @@ def build_target_weight_matrix(
     *,
     held_only: bool = True,
 ) -> pd.DataFrame:
-    """Pivot optimizer target weights into a ``Ticker × trading-day`` matrix.
+    """Pivot optimizer target weights into a ``Ticker × calendar-day`` matrix.
 
     Args:
         history: order-book rationale payloads (any order). Each is one
-            trading day's artifact carrying ``tickers[].optimizer.target_weight``.
+            session's artifact carrying ``tickers[].optimizer.target_weight``.
         held_only: when True (option A) keep only tickers that were held
             or an approved entry on at least one day in the window — the
             actual/forming book. When False (option B) keep every ticker
@@ -61,12 +77,12 @@ def build_target_weight_matrix(
     Returns:
         DataFrame indexed by ticker (rows sorted by the latest day's
         target descending, NaN last, mean as tiebreak), columns are
-        trading-day keys ascending (oldest → newest), values are target
+        calendar-day keys ascending (oldest → newest), values are target
         % of NAV (``target_weight * 100``) with ``NaN`` for days a ticker
         had no optimizer target. Empty DataFrame when the window has no
         usable target weights.
     """
-    # Dedup to one artifact per trading day — a same-day re-run would
+    # Dedup to one artifact per calendar day — a same-day re-run would
     # otherwise produce duplicate columns. Latest run_id wins.
     by_day: dict[str, dict] = {}
     for payload in history or []:

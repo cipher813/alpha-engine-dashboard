@@ -1,10 +1,10 @@
 """Unit tests for shared.target_weights.build_target_weight_matrix.
 
-Covers the Ticker × trading-day pivot of optimizer target weights that
+Covers the Ticker × calendar-day pivot of optimizer target weights that
 the order-book rationale page renders as a time-series matrix: the
 held_only (option A) vs full-universe (option B) row filter, NaN-vs-0.0
-cell semantics, oldest→newest column order, latest-day row sort, and
-same-day re-run dedup.
+cell semantics, oldest→newest column order, latest-day row sort,
+same-day re-run dedup, and the calendar_date column-keying convention.
 """
 from __future__ import annotations
 
@@ -196,3 +196,34 @@ def test_same_day_rerun_latest_run_wins():
     df = build_target_weight_matrix(hist, held_only=True)
     assert list(df.columns) == ["2026-06-01"]  # one column, deduped
     assert df.loc["AAPL", "2026-06-01"] == 6.0  # later run wins
+
+
+# ── calendar_date column-keying convention ─────────────────────────────
+
+
+def test_columns_keyed_on_calendar_date_not_trading_day():
+    # Forward-looking surface: the column is the day the book is FOR
+    # (calendar_date), NOT the backward-looking trading_day that fed it.
+    # This is the regression that made the chart look stale ("hasn't
+    # updated since 6/18"): a Monday run after the Fri Juneteenth holiday
+    # carried trading_day = the prior Thursday.
+    rec = _rec("AAPL", tgt_w=0.05, held=True, state="held")
+    hist = [
+        {
+            "calendar_date": "2026-06-22",
+            "trading_day": "2026-06-18",
+            "run_id": "2026-06-22-0900",
+            "tickers": [rec],
+        }
+    ]
+    df = build_target_weight_matrix(hist, held_only=True)
+    assert list(df.columns) == ["2026-06-22"]  # FOR-day, not signals-day
+
+
+def test_trading_day_fallback_for_legacy_artifacts():
+    # Pre-dual-date artifacts carry only trading_day → fall back to it so
+    # legacy windows still render rather than dropping the column.
+    rec = _rec("AAPL", tgt_w=0.05, held=True, state="held")
+    hist = [{"trading_day": "2026-06-10", "run_id": "r1", "tickers": [rec]}]
+    df = build_target_weight_matrix(hist, held_only=True)
+    assert list(df.columns) == ["2026-06-10"]
