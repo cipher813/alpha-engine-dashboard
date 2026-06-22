@@ -384,15 +384,17 @@ def _tw_cell_styles(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _render_target_weight_timeseries(history: list[dict]) -> None:
-    """Cross-day matrix of optimizer holdings targets — target % per trading
+    """Cross-day matrix of optimizer holdings targets — target % per calendar
     day. Read-only: pivots the ``optimizer.target_weight`` already carried
-    in each loaded artifact (no producer change). The actual/forming book
-    by default; toggle to the full considered universe."""
-    st.markdown("##### Target-weight evolution — optimizer holdings targets by trading day")
+    in each loaded artifact (no producer change). Columns are keyed on the
+    calendar date the book is FOR (forward-looking surface), not the
+    backward-looking trading_day. The actual/forming book by default;
+    toggle to the full considered universe."""
+    st.markdown("##### Target-weight evolution — optimizer holdings targets by calendar day")
     usable = [p for p in (history or []) if isinstance(p, dict) and p.get("tickers")]
     if len(usable) < 2:
         st.caption(
-            "Target-weight history needs ≥2 trading days of order-book "
+            "Target-weight history needs ≥2 sessions of order-book "
             "rationale artifacts — this fills in as executor runs accumulate."
         )
         return
@@ -416,7 +418,7 @@ def _render_target_weight_timeseries(history: list[dict]) -> None:
     # Narrow column labels (MM-DD); the full window is stated in the caption.
     df = df.rename(columns={d: d[5:] if len(d) >= 10 else d for d in full_days})
     st.caption(
-        f"{len(df)} ticker(s) × {len(df.columns)} trading day(s) "
+        f"{len(df)} ticker(s) × {len(df.columns)} session(s) "
         f"({full_days[0]} → {full_days[-1]}). Cells are target % of NAV; "
         "**—** = no optimizer target that day (not in the universe), "
         "distinct from a deliberate 0.00%. Rows sorted by latest-day target."
@@ -425,7 +427,7 @@ def _render_target_weight_timeseries(history: list[dict]) -> None:
     st.dataframe(styled, use_container_width=True)
 
     with st.expander("Line chart", expanded=False):
-        # Transpose → index = trading day, one line per ticker. NaN gaps
+        # Transpose → index = calendar day, one line per ticker. NaN gaps
         # break the line where a ticker left the universe.
         st.line_chart(df.T)
 
