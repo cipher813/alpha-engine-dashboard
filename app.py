@@ -453,6 +453,7 @@ def _build_navigation():
             page("27_Active_Observations.py", "Active Observations", "🔭"),
             page("28_Retros.py", "Retros", "📓"),
             page("23_LLM_Cost.py", "LLM Cost", "💰"),
+            page("36_Claude_Code_Usage.py", "Claude Code Usage", "📟"),
         ],
         "📚 Reference & Deep-Dives": [
             page("10_Architecture.py", "Architecture", "🏛"),
