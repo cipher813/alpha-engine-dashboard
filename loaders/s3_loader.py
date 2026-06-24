@@ -1546,3 +1546,58 @@ def load_news_articles(key: str) -> pd.DataFrame:
         logger.warning("news articles parquet parse failed for %s: %s", key, e)
         _record_s3_error(_research_bucket(), key, "ParquetParseError", str(e))
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=900)
+def load_claude_code_usage(n_days: int = 35):
+    """Load Brian's Claude Code Max-plan usage from
+    ``s3://<research>/claude_code_usage/{source}/{date}.json`` (producer:
+    alpha-engine-config ``scripts/collect_usage.py`` via the hourly launchd agent;
+    fast-follow ``source='groom'`` from the GHA groom).
+
+    Returns ``(df_model, df_hour)`` long-form DataFrames (empty if the prefix is
+    absent). ``df_model`` is per (date, source, model) with WET / cost_usd / total
+    + the 4 raw token fields; ``df_hour`` is per (date, source, hour) with WET /
+    cost. WET = weighted effective tokens — the price-independent headline unit."""
+    import datetime as _dt
+
+    bucket = _research_bucket()
+    prefix = "claude_code_usage/"
+    cutoff = (_dt.date.today() - _dt.timedelta(days=n_days)).isoformat()
+    found: list[tuple[str, str, str]] = []
+    try:
+        client = get_s3_client()
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                k = obj.get("Key", "")
+                parts = k[len(prefix):].split("/")  # <source>/<date>.json
+                if len(parts) == 2 and parts[1].endswith(".json"):
+                    date_str = parts[1][:-5]
+                    if date_str >= cutoff:
+                        found.append((parts[0], date_str, k))
+    except Exception as e:
+        logger.error("ccusage list failed: %s", e)
+        return pd.DataFrame(), pd.DataFrame()
+
+    toks = ("input_tokens", "output_tokens",
+            "cache_creation_input_tokens", "cache_read_input_tokens")
+    model_rows, hour_rows = [], []
+    for source, date_str, key in found:
+        doc = download_s3_json(bucket, key)
+        if not isinstance(doc, dict):
+            continue
+        for model, rec in (doc.get("by_model") or {}).items():
+            row = {"date": date_str, "source": source, "model": model,
+                   "wet": rec.get("wet", 0), "cost_usd": rec.get("cost_usd", 0.0),
+                   "total": rec.get("total", 0)}
+            for t in toks:
+                row[t] = rec.get(t, 0)
+            model_rows.append(row)
+        for hour, models in (doc.get("by_hour") or {}).items():
+            hour_rows.append({
+                "date": date_str, "source": source, "hour": int(hour),
+                "wet": sum(r.get("wet", 0) for r in models.values()),
+                "cost_usd": sum(r.get("cost_usd", 0.0) for r in models.values()),
+            })
+    return pd.DataFrame(model_rows), pd.DataFrame(hour_rows)
