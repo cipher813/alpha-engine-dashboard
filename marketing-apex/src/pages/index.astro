@@ -20,21 +20,29 @@ const products = [
   },
 ];
 
-const oss = [
+const tools = [
   {
     name: 'mnemon',
-    href: 'https://github.com/cipher813/mnemon',
+    href: 'https://github.com/nousergon/mnemon',
     body: 'Persistent memory for AI assistants (MCP server).',
   },
   {
-    name: 'flow-doctor',
-    href: 'https://github.com/cipher813/flow-doctor',
-    body: 'Pipeline observability: decision traces, crash capture, data-quality alerts.',
+    name: 'krepis',
+    href: 'https://github.com/nousergon/krepis',
+    body: "Foundation library — shared primitives for the lab's services.",
   },
   {
+    name: 'flow-doctor',
+    href: 'https://github.com/nousergon/flow-doctor',
+    body: 'Pipeline observability: decision traces, crash capture, data-quality alerts.',
+  },
+];
+
+const apps = [
+  {
     name: 'morning-signal',
-    href: 'https://github.com/cipher813/morning-signal',
-    body: 'Daily market-brief generation.',
+    href: 'https://github.com/nousergon/morning-signal',
+    body: 'Daily news brief — researched, written, and narrated to audio.',
   },
 ];
 ---
@@ -42,7 +50,7 @@ const oss = [
 <Base>
   <section class="max-w-3xl mx-auto px-6 pt-10 md:pt-12 pb-14 text-center">
     <h1 class="text-2xl md:text-[1.75rem] font-medium text-zinc-100 leading-snug tracking-tight mb-5 max-w-2xl mx-auto">
-      An applied AI lab for financial markets.
+      An applied AI lab.
     </h1>
     <p class="text-sm md:text-base text-zinc-400 leading-relaxed max-w-xl mx-auto">
       Nous Ergon &mdash; <em>intelligence at work</em>. We build agentic
@@ -51,7 +59,10 @@ const oss = [
     </p>
   </section>
 
-  <section class="max-w-5xl mx-auto px-6 pb-6">
+  <section class="max-w-5xl mx-auto px-6 pb-10">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">
+      Markets
+    </h2>
     <div class="grid grid-cols-1 gap-4">
       {
         products.map((p) => (
@@ -81,13 +92,34 @@ const oss = [
     </div>
   </section>
 
-  <section class="max-w-5xl mx-auto px-6 pb-20">
+  <section class="max-w-5xl mx-auto px-6 pb-10">
     <h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">
-      Open source
+      Developer tools
     </h2>
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       {
-        oss.map((t) => (
+        tools.map((t) => (
+          <a
+            href={t.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="block rounded-lg border border-white/10 bg-white/[0.02] p-5 transition hover:bg-white/[0.05]"
+          >
+            <div class="text-sm font-semibold text-zinc-100 mb-1.5">{t.name}</div>
+            <p class="text-sm text-zinc-400 leading-relaxed">{t.body}</p>
+          </a>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="max-w-5xl mx-auto px-6 pb-20">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">
+      Apps
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {
+        apps.map((t) => (
           <a
             href={t.href}
             target="_blank"
