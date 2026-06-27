@@ -1,0 +1,126 @@
+name: deploy-marketing
+
+# Deploys the three Astro static sites to their Cloudflare Pages projects on
+# push to main — the durable replacement for the CF git-integration, which was
+# observed silently NOT firing on merge (config#1317: nousergon.ai served stale
+# copy for a week after a merge because no CF build triggered). Deploy lives in
+# the repo (version-controlled, auditable) like infrastructure/deploy.yml, not
+# in a CF-dashboard webhook we can't see or test.
+#
+# Mapping (site dir -> Cloudflare Pages project -> domain):
+#   marketing-apex   -> nousergon-marketing -> nousergon.ai
+#   marketing        -> nousergon-crucible  -> crucible.nousergon.ai
+#   marketing-metron -> nousergon-metron    -> metron.nousergon.ai
+#
+# Triggers:
+#   push:main          -> deploy ONLY the sites whose paths changed (paths-filter)
+#   workflow_dispatch  -> force-deploy ALL three (use to publish a backlog of
+#                         already-merged copy, or to validate the pipeline)
+#
+# Requires repo secret CLOUDFLARE_API_TOKEN (Cloudflare Pages: Edit) and repo
+# variable CLOUDFLARE_ACCOUNT_ID. Build (astro check) already gates merge via
+# marketing-ci.yml; this re-builds from the merged tree and uploads dist/.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - marketing/**
+      - marketing-apex/**
+      - marketing-metron/**
+      - blog/**
+      - .github/workflows/deploy-marketing.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-marketing-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: detect changed sites
+    runs-on: ubuntu-latest
+    outputs:
+      apex: ${{ steps.decide.outputs.apex }}
+      crucible: ${{ steps.decide.outputs.crucible }}
+      metron: ${{ steps.decide.outputs.metron }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push'
+        with:
+          filters: |
+            apex:
+              - 'marketing-apex/**'
+              - 'blog/**'
+            crucible:
+              - 'marketing/**'
+            metron:
+              - 'marketing-metron/**'
+      - name: Decide (force-all on manual dispatch)
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "apex=true"     >> "$GITHUB_OUTPUT"
+            echo "crucible=true" >> "$GITHUB_OUTPUT"
+            echo "metron=true"   >> "$GITHUB_OUTPUT"
+          else
+            echo "apex=${{ steps.filter.outputs.apex }}"         >> "$GITHUB_OUTPUT"
+            echo "crucible=${{ steps.filter.outputs.crucible }}" >> "$GITHUB_OUTPUT"
+            echo "metron=${{ steps.filter.outputs.metron }}"     >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: deploy ${{ matrix.project }}
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - site: marketing-apex
+            project: nousergon-marketing
+            changed: ${{ needs.changes.outputs.apex }}
+          - site: marketing
+            project: nousergon-crucible
+            changed: ${{ needs.changes.outputs.crucible }}
+          - site: marketing-metron
+            project: nousergon-metron
+            changed: ${{ needs.changes.outputs.metron }}
+    steps:
+      - name: Checkout
+        if: matrix.changed == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: matrix.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ${{ matrix.site }}/package-lock.json
+
+      - name: Install + build (astro check && astro build)
+        if: matrix.changed == 'true'
+        working-directory: ${{ matrix.site }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to Cloudflare Pages (production)
+        if: matrix.changed == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ${{ matrix.site }}/dist --project-name=${{ matrix.project }} --branch=main
+
+  notify-main-failure:
+    needs: [deploy]
+    if: ${{ failure() && github.ref == 'refs/heads/main' }}
+    uses: nousergon/nousergon-lib/.github/workflows/notify-ci-failure.yml@main
+    secrets: inherit
