@@ -386,6 +386,21 @@ def load_signals_json(date_str: str) -> dict | None:
     return download_s3_json(_research_bucket(), key)
 
 
+def load_universe_board(date_str: str | None = None) -> dict | None:
+    """Load the full ~900-name universe scoreboard (attractiveness + pillar
+    scores + raw metrics + sector/country + gate flags) produced by
+    crucible-research ``scoring/universe_board.py``.
+
+    ``date_str=None`` reads the ``latest.json`` sidecar; a date reads the dated
+    ``scanner/universe/{date}/universe.json``. Returns None when no board has
+    been published yet (the page graceful-degrades to an explainer)."""
+    key = (
+        f"scanner/universe/{date_str}/universe.json"
+        if date_str else "scanner/universe/latest.json"
+    )
+    return download_s3_json(_research_bucket(), key)
+
+
 @st.cache_data(ttl=_ttl("signals"))
 def load_report_card(date_str: str | None = None) -> dict | None:
     """Load the evaluator Report Card v2 (the 7-tile MetricRecord substrate).
