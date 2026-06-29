@@ -27,7 +27,16 @@ import pandas as pd
 import streamlit as st
 
 from loaders.s3_loader import load_universe_board
-from loaders.universe_board import METRIC_LABELS, PILLARS, flatten_board
+from loaders.universe_board import (
+    GATE_STAGE_LABELS,
+    METRIC_LABELS,
+    PILLARS,
+    board_meta,
+    contributions_df,
+    flatten_board,
+    gate_trace_df,
+    index_by_ticker,
+)
 
 st.markdown("### 🌌 Universe Board")
 st.caption(
@@ -45,8 +54,12 @@ if not board or not board.get("stocks"):
     )
     st.stop()
 
-as_of = board.get("as_of", "—")
-method = board.get("attractiveness_method", "")
+meta = board_meta(board)
+as_of = meta["as_of"] or "—"
+method = meta["attractiveness_method"]
+weights = meta["pillar_weights"]
+gate_config = meta["gate_config"]
+by_ticker = index_by_ticker(board)
 
 # Flatten the per-stock records into a numeric-coerced display DataFrame
 # (pure transform lives in loaders/universe_board.py — see the consumer
@@ -63,7 +76,39 @@ m1.metric("Universe", n)
 m2.metric("Passed quant gate", n_pass)
 m3.metric("Avg attractiveness", f"{avg_attr:.1f}" if pd.notna(avg_attr) else "—")
 m4.metric("As of", as_of)
-st.caption(f"Attractiveness = {method.replace('_', ' ')} (0–100). Higher is more attractive.")
+
+if method == "sector_neutral_zscore_percentile":
+    st.caption(
+        "**Attractiveness (0–100)** = cross-sectional **percentile of a "
+        "sector-neutral, winsorized z-score blend** of the 6 factor pillars "
+        "(Grinold-Kahn). The pillars are already within-sector percentile ranks; "
+        "the blend is re-standardized so the score uses the full 0–100 range. "
+        "Select a ticker below to see each pillar's contribution and how the "
+        "scanner gated it."
+    )
+    if weights:
+        wtxt = " · ".join(f"{p[:4].title()} {weights.get(p, 0) * 100:.0f}%" for p in _PILLARS)
+        st.caption(f"Pillar weights: {wtxt}")
+else:
+    # schema_version=1 fallback caption.
+    st.caption(f"Attractiveness = {method.replace('_', ' ')} (0–100). Higher is more attractive.")
+
+# Scanner gate thresholds used this cycle (transparency: the actual numbers).
+if gate_config:
+    with st.expander("🚪 Scanner gates this cycle (thresholds)"):
+        gc = gate_config
+        st.markdown(
+            f"- **Liquidity** — avg 20d volume ≥ `{gc.get('min_avg_volume')}`"
+            + (f", price ≥ `${gc.get('min_price')}`" if (gc.get('min_price') or 0) > 0 else "")
+            + f"\n- **Volatility** — ATR% ≤ `{gc.get('max_atr_pct')}` (momentum) / "
+            f"`{gc.get('deep_value_max_atr_pct')}` (deep value)"
+            f"\n- **Momentum path** — tech_score ≥ `{gc.get('tech_score_min')}` and "
+            f"price-vs-MA200 > `{gc.get('momentum_ma200_floor_pct')}`%"
+            f"\n- **Deep-value path** — {'enabled' if gc.get('deep_value_path_enabled') else 'disabled'}, "
+            f"RSI < `{gc.get('deep_value_max_rsi')}`"
+            f"\n- **Rank cutoff** — top `{gc.get('momentum_top_n')}` by tech_score "
+            f"(+ up to `{gc.get('deep_value_max_candidates')}` deep-value)"
+        )
 
 st.divider()
 
@@ -84,7 +129,8 @@ attr_min = st.slider("Minimum attractiveness", 0, 100, 0)
 # Dynamic "filter by any metric range" — the flexible multi-metric filter.
 _NUMERIC_COLS = [
     c for c in df.columns
-    if c not in ("attractiveness",) and pd.api.types.is_numeric_dtype(df[c]) and df[c].notna().any()
+    if c not in ("attractiveness", "attractiveness_raw")
+    and pd.api.types.is_numeric_dtype(df[c]) and df[c].notna().any()
 ]
 _LABELS = METRIC_LABELS
 with st.expander("Advanced metric filters — filter by any metric range"):
@@ -132,8 +178,11 @@ _PCT_COLS = ["fcf_yield", "div_yield", "roe", "gross_margin", "rev_gr_3y", "eps_
 col_config = {
     "attractiveness": st.column_config.ProgressColumn(
         "Attract.", min_value=0, max_value=100, format="%.1f",
-        help="Equal-weight blend of the 6 factor pillars (0–100).",
+        help="Cross-sectional percentile of the sector-neutral z-score blend of "
+             "the 6 factor pillars (0–100). Higher = more attractive.",
     ),
+    "gate_stage": st.column_config.TextColumn(
+        "Gate", help="Terminal scanner funnel stage (passed, or where it dropped)."),
     "price": st.column_config.NumberColumn("Price", format="$%.2f"),
     "mkt_cap": st.column_config.NumberColumn("Mkt Cap", format="compact"),
     "avg_vol": st.column_config.NumberColumn("Avg Vol", format="compact"),
@@ -150,9 +199,14 @@ for p in _PILLARS + ["focus", "tech"]:
 for c in _PCT_COLS:
     col_config[c] = st.column_config.NumberColumn(_LABELS.get(c, c), format="percent")
 
+view_display = view.sort_values("attractiveness", ascending=False, na_position="last").copy()
+if "gate_stage" in view_display.columns:
+    view_display["gate_stage"] = view_display["gate_stage"].map(
+        lambda s: GATE_STAGE_LABELS.get(s, s) if pd.notna(s) else s
+    )
 st.dataframe(
-    view.sort_values("attractiveness", ascending=False, na_position="last"),
-    use_container_width=True, hide_index=True, height=620, column_config=col_config,
+    view_display, use_container_width=True, hide_index=True, height=620,
+    column_config=col_config,
 )
 
 st.caption(
@@ -160,3 +214,56 @@ st.caption(
     "feature store). Blank = coverage gap (never a guessed value). Pillars: Quality · "
     "Value · Momentum · Growth · Stewardship · Defensiveness. Sort any column by clicking its header."
 )
+
+# ── Per-stock detail: WHY it scores + HOW the scanner judged it ──────────────
+st.divider()
+st.markdown("#### 🔬 Stock detail — why this score, and how the scanner judged it")
+_match = view["ticker"].dropna().tolist()
+if not _match:
+    st.caption("No names in the current filter to inspect.")
+else:
+    pick = st.selectbox("Ticker", _match, key="ub_detail_ticker")
+    stock = by_ticker.get(pick) or {}
+    drow = view[view["ticker"] == pick]
+    dc1, dc2 = st.columns(2)
+    with dc1:
+        st.markdown("**Attractiveness — pillar contributions**")
+        cdf = contributions_df(stock)
+        if cdf.empty:
+            st.caption("No factor pillars available for this name (attractiveness is N/A).")
+        else:
+            raw = stock.get("attractiveness_raw")
+            score = stock.get("attractiveness_score")
+            st.caption(
+                f"Score **{score:.1f}** (percentile) · raw z-blend "
+                f"**{raw:+.3f}** = sum of the signed contributions below "
+                "(each = pillar weight × its winsorized z-score, renormalized over "
+                "available pillars). Green pulls the score up, red pulls it down."
+            )
+            st.dataframe(
+                cdf.set_index("pillar"),
+                use_container_width=True,
+                column_config={"contribution": st.column_config.NumberColumn(
+                    "Contribution", format="%+.3f")},
+            )
+            st.bar_chart(cdf.set_index("pillar")["contribution"], horizontal=True)
+    with dc2:
+        st.markdown("**Scanner gate trace**")
+        gstage = stock.get("gate_stage")
+        st.caption(f"Terminal stage: **{GATE_STAGE_LABELS.get(gstage, gstage or '—')}**")
+        gtdf = gate_trace_df(stock)
+        if gtdf.empty:
+            st.caption("No gate trace recorded for this name.")
+        else:
+            st.dataframe(
+                gtdf, use_container_width=True, hide_index=True,
+                column_config={
+                    "value": st.column_config.NumberColumn("Value", format="%.4g"),
+                    "threshold": st.column_config.NumberColumn("Threshold", format="%.4g"),
+                },
+            )
+            st.caption(
+                "Each gate shows the stock's value vs the threshold the scanner used "
+                "this cycle. A name can clear every value-gate yet drop at the rank "
+                "cutoff (only the top-N by tech_score make the basket)."
+            )

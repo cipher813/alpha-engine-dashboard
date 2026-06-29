@@ -29,12 +29,13 @@ import pandas as pd
 import streamlit as st
 
 from loaders.db_loader import get_decision_eval_dates, get_scanner_evaluations
+from loaders.s3_loader import load_universe_board
 
 st.markdown("### 🔭 Scanner")
 st.caption(
     "The weekly quant filter: ~900 screened → ~60 candidates. Gates "
-    "(liquidity · volatility · balance sheet · tech-score rank) and results "
-    "per sector. Read from the recorded scan (no LLM call, no cost)."
+    "(liquidity · volatility · tech-score rank) with the actual thresholds and "
+    "results per sector. Read from the recorded scan (no LLM call, no cost)."
 )
 
 eval_dates = get_decision_eval_dates(limit=30)
@@ -50,6 +51,29 @@ df = get_scanner_evaluations(eval_date)
 if df.empty:
     st.info(f"No scanner_evaluations rows for {eval_date}.")
     st.stop()
+
+# The resolved gate thresholds for this cycle live on the universe-board
+# artifact (crucible-research scoring/universe_board.py emits gate_config from
+# the same config source the scanner reads). Fall back to the latest board when
+# the dated one isn't published; degrade to empty (no thresholds shown) if no
+# board exists yet. This is what turns "outcomes only" into "value vs threshold".
+_board = load_universe_board(eval_date) or load_universe_board()
+_gc = (_board or {}).get("gate_config") or {}
+if _gc:
+    st.caption(
+        f"**Gate thresholds this cycle** — liquidity: avg 20d vol ≥ "
+        f"`{_gc.get('min_avg_volume')}`"
+        + (f", price ≥ `${_gc.get('min_price')}`" if (_gc.get('min_price') or 0) > 0 else "")
+        + f" · volatility: ATR% ≤ `{_gc.get('max_atr_pct')}` (momentum) / "
+        f"`{_gc.get('deep_value_max_atr_pct')}` (deep value) · momentum path: "
+        f"tech_score ≥ `{_gc.get('tech_score_min')}` · rank cutoff: top "
+        f"`{_gc.get('momentum_top_n')}` by tech_score."
+    )
+else:
+    st.caption(
+        "_Gate thresholds unavailable for this cycle (no universe-board artifact "
+        "yet) — showing recorded pass/fail outcomes only._"
+    )
 
 df["passed"] = pd.to_numeric(df["quant_filter_pass"], errors="coerce").fillna(0).astype(int)
 df["sector"] = df["sector"].fillna("Unknown")
@@ -124,15 +148,38 @@ with fc1:
 with fc2:
     outcome = st.radio("Outcome", ["All", "Passed", "Failed"], horizontal=True)
 
-view = df[df["sector"].isin(pick)]
+view = df[df["sector"].isin(pick)].copy()
 if outcome == "Passed":
     view = view[view["passed"] == 1]
 elif outcome == "Failed":
     view = view[view["passed"] == 0]
 
-cols = ["ticker", "sector", "passed", "scan_path", "tech_score", "filter_fail_reason",
-        "rsi_14", "atr_pct", "price_vs_ma200", "avg_volume_20d", "current_price"]
-st.caption(f"{len(view)} of {screened} names.")
+
+def _vs(series_name: str, threshold, op: str):
+    """A ✓/✗/— column comparing the recorded value to the cycle threshold —
+    the per-ticker value-vs-threshold transparency. — when value or threshold
+    is missing."""
+    if series_name not in view.columns or threshold is None:
+        return pd.Series(["—"] * len(view), index=view.index)
+    vals = pd.to_numeric(view[series_name], errors="coerce")
+    ok = vals >= threshold if op == ">=" else vals <= threshold
+    return ok.map({True: "✓", False: "✗"}).where(vals.notna(), "—")
+
+
+# value-vs-threshold indicator columns (only when we resolved the thresholds).
+if _gc:
+    view["liq✓"] = _vs("avg_volume_20d", _gc.get("min_avg_volume"), ">=")
+    view["vol✓"] = _vs("atr_pct", _gc.get("max_atr_pct"), "<=")
+    view["tech✓"] = _vs("tech_score", _gc.get("tech_score_min"), ">=")
+
+cols = ["ticker", "sector", "passed", "scan_path", "tech_score", "tech✓",
+        "filter_fail_reason", "rsi_14", "atr_pct", "vol✓", "price_vs_ma200",
+        "avg_volume_20d", "liq✓", "current_price"]
+st.caption(
+    f"{len(view)} of {screened} names. "
+    + ("✓/✗ columns compare each name's recorded value to this cycle's gate "
+       "threshold." if _gc else "")
+)
 st.dataframe(
     view[[c for c in cols if c in view.columns]]
     .sort_values(["passed", "tech_score"], ascending=[False, False]),
