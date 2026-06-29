@@ -401,6 +401,35 @@ def load_universe_board(date_str: str | None = None) -> dict | None:
     return download_s3_json(_research_bucket(), key)
 
 
+def load_attractiveness_trajectory(date_str: str | None = None) -> dict | None:
+    """Load the weekly attractiveness-trajectory signal (rising / pre-repricing)
+    produced by crucible-research ``scoring/attractiveness_trajectory.py``.
+
+    ``date_str=None`` reads ``scanner/universe/trajectory/latest.json``; a date
+    reads the dated artifact. None until the signal first produces (warm-up)."""
+    key = (
+        f"scanner/universe/trajectory/{date_str}/trajectory.json"
+        if date_str else "scanner/universe/trajectory/latest.json"
+    )
+    return download_s3_json(_research_bucket(), key)
+
+
+@st.cache_data(ttl=_ttl("signals"))
+def load_attractiveness_history() -> pd.DataFrame:
+    """Load the per-stock attractiveness time-series parquet
+    (``scanner/universe/history/attractiveness_history.parquet``) — one row per
+    (as_of, ticker) with attractiveness_raw/score + pillars. Empty DataFrame
+    when absent (page degrades to its explainer)."""
+    raw = _s3_get_object(_research_bucket(), "scanner/universe/history/attractiveness_history.parquet")
+    if raw is None:
+        return pd.DataFrame()
+    try:
+        return pd.read_parquet(io.BytesIO(raw))
+    except Exception as e:
+        logger.warning("attractiveness history parquet parse failed: %s", e)
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=_ttl("signals"))
 def load_report_card(date_str: str | None = None) -> dict | None:
     """Load the evaluator Report Card v2 (the 7-tile MetricRecord substrate).

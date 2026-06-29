@@ -26,7 +26,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 import streamlit as st
 
-from loaders.s3_loader import load_universe_board
+from loaders.attractiveness_trends import ticker_series
+from loaders.s3_loader import load_attractiveness_history, load_universe_board
 from loaders.universe_board import (
     GATE_STAGE_LABELS,
     METRIC_LABELS,
@@ -267,3 +268,13 @@ else:
                 "this cycle. A name can clear every value-gate yet drop at the rank "
                 "cutoff (only the top-N by tech_score make the basket)."
             )
+
+    # Attractiveness over time (sparkline from the history parquet) — how this
+    # name's attractiveness is trending. Full trend signal: Attractiveness Trends.
+    _hist = load_attractiveness_history()
+    _series = ticker_series(_hist, pick) if not _hist.empty else _hist
+    if _series is not None and not _series.empty and len(_series) > 1:
+        st.markdown(f"**{pick} — attractiveness over time**")
+        st.line_chart(_series[["attractiveness_score"]], height=200)
+        st.caption("Weekly attractiveness percentile. Trend signal + pre-repricing leaderboard: "
+                   "the **Attractiveness Trends** page.")
