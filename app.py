@@ -430,6 +430,7 @@ def _build_navigation():
             page("Daily_News.py", "Daily News", "📰"),
             page("34_Scanner.py", "Scanner", "🔭"),
             page("39_Universe_Board.py", "Universe Board", "🌌"),
+            page("40_Attractiveness_Trends.py", "Attractiveness Trends", "📈"),
             page("29_Decision_Review.py", "Decision Review", "🔍"),
             page("33_Sector_Team_Review.py", "Sector Team Review", "🏟"),
             page("31_CIO_Review.py", "CIO Review", "🏛"),
