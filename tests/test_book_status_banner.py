@@ -94,3 +94,23 @@ def test_absent_book_status_renders_nothing(page_mod):
     st = _banner_state(mod, st, {"summary": {}, "tickers": []})
     assert not st.info.called and not st.error.called
     assert not st.success.called and not st.warning.called
+
+
+# config#1436 — pricing_source surfaced inline in the decision-chain string.
+def test_chain_str_tags_pricing_source(page_mod):
+    mod, _ = page_mod
+    chain = [
+        {"stage": "risk_guard", "result": "pass"},
+        {"stage": "position_sizer", "result": "10.00% NAV",
+         "pricing_source": "price_history_close"},
+        {"stage": "entry_trigger", "result": "pending"},
+    ]
+    s = mod._chain_str(chain)
+    # Fallback price is visible to the operator; live snapshot tagged "live".
+    assert "position_sizer:10.00% NAV [last-close]" in s
+    live = mod._chain_str([{"stage": "position_sizer", "result": "x",
+                            "pricing_source": "ibkr"}])
+    assert "[live]" in live
+    # Legacy/absent pricing_source → no tag, no crash.
+    assert mod._chain_str([{"stage": "position_sizer", "result": "x"}]) \
+        == "position_sizer:x"

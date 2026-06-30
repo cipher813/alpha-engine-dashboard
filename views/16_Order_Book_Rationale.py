@@ -89,6 +89,12 @@ _RECON_STATUS_COLOR = {
 }
 
 
+# config#1436: pricing_source (producer OBR schema 1.4.0) → operator label.
+# Surfaces whether an optimizer-sized name was priced on a live IBKR snapshot
+# or the last-close fallback, so a day-old sizing price is visible inline.
+_PRICING_SOURCE_LABEL = {"ibkr": "live", "price_history_close": "last-close"}
+
+
 def _chain_str(chain: list[dict]) -> str:
     """Compact one-line decision chain: stage:result → stage:result."""
     parts = []
@@ -96,6 +102,9 @@ def _chain_str(chain: list[dict]) -> str:
         seg = f"{s.get('stage')}:{s.get('result')}"
         if s.get("rule"):
             seg += f"({s['rule']})"
+        ps = s.get("pricing_source")
+        if ps:
+            seg += f" [{_PRICING_SOURCE_LABEL.get(ps, ps)}]"
         parts.append(seg)
     return "  →  ".join(parts)
 
